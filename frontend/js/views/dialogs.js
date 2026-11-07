@@ -95,7 +95,7 @@ export async function mount(root, { query, ctx }) {
     menu(exportBtn, [
       { label: 'Таблица CSV', icon: 'download', onClick: () => download(exportUrl(state.filters.group, 'csv')) },
       { label: 'Данные JSON', icon: 'download', onClick: () => download(exportUrl(state.filters.group, 'json')) },
-      { label: sg ? `results.json для организаторов, группа ${sg}` : 'results.json для организаторов', icon: 'check', onClick: async () => {
+      { label: sg ? `results.json для сдачи, группа ${sg}` : 'results.json для сдачи', icon: 'download', onClick: async () => {
         if (!sg) { toast('Нет группы для сдачи. Загрузите набор по group_id.', 'error'); return; }
         try {
           const chk = await api.resultsCheck(sg);
