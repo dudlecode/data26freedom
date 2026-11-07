@@ -46,7 +46,7 @@
 - `GET /api/checklists/active` и `GET /api/checklists/{id}` > `{id, name, version, is_active, note, created_at, config}`
 - `POST /api/checklists/validate` `{config}` > `{errors: [str], issues: [Issue], total_weight}`.
   `Issue = {message, criterion_index (с 0, по порядку в присланном config) | null, criterion_id | null, field: name|criteria|id|code|type|weight|description|na_condition|section|scale | null, step_index (с 0) | null}`; `errors` = `issues[].message` в том же порядке, без повторов.
-  Проверки: название чек-листа; у критерия ID и код уникальны (после обрезки пробелов), есть название, тип binary|scale|flag, вес конечный и неотрицательный, задано правило (`description`); если разрешён Н/П, указано условие (`na_condition`); секция существует; у шкалы минимум 2 ступени, у каждой ступени целое неотрицательное число баллов без повторов, верхняя > 0; хотя бы один критерий с весом > 0.
+  Проверки: название чек-листа; у критерия ID и код уникальны (после обрезки пробелов), есть название, тип binary|scale|flag, вес конечный и неотрицательный, задано правило (`description`); если разрешён N/A, указано условие (`na_condition`); секция существует; у шкалы минимум 2 ступени, у каждой ступени целое неотрицательное число баллов без повторов, верхняя > 0; хотя бы один критерий с весом > 0.
 - `POST /api/checklists` `{config, note?, activate?: true}` > созданная версия (version = max+1). 422 `{"detail": {"errors": [...], "issues": [...]}}` при ошибках. При сохранении критерии одной секции собираются вместе в порядке секций (внутри секции порядок сохраняется), поэтому критерий, добавленный в конец списка, встаёт к своей секции.
 - `POST /api/checklists/simulate` `{config, group_id?}` > влияние правки на уже оценённые диалоги, без вызова модели: финальные значения последней завершённой оценки каждого диалога пересчитываются новым чек-листом.
   ```
@@ -55,7 +55,7 @@
     changed_count, changed: [{dialog_id, evaluation_id, operator, operator_key, before, after, delta, gross_before, gross_after}],
     new_criteria: [cid], removed_criteria: [cid] }
   ```
-  `changed` отсортирован по |delta| убыв. Критерий, которого в оценке нет (новый или со сменённым типом), считается Н/П до переоценки, его вес перераспределяется; значения шкалы приводятся к ближайшей новой ступени. При ошибках в config ответ 200 с заполненными `errors` и `issues`, `before`/`after` = null.
+  `changed` отсортирован по |delta| убыв. Критерий, которого в оценке нет (новый или со сменённым типом), считается N/A до переоценки, его вес перераспределяется; значения шкалы приводятся к ближайшей новой ступени. При ошибках в config ответ 200 с заполненными `errors` и `issues`, `before`/`after` = null.
 - `POST /api/checklists/{id}/activate` > `{ok: true}`
 - `GET /api/checklists/default` > исходный чек-лист из файла (для «сбросить к исходному»).
 
@@ -99,7 +99,7 @@
 
 ### Апелляции
 `Appeal = {id, evaluation_id, dialog_id, criterion_id, criterion_name, comment, author, status: open|decided, original: {value, reasoning, evidence_turns, points}, ai_opinion: {value, reasoning, evidence_turns, appeal_valid, recommendation, model, cost_usd, requested_at, requested_by}|null, decision: confirmed|changed|null, decision_value, decision_reason, reviewer, created_at, decided_at, total_before, total_after, total_delta, original_value_label, decision_value_label, latest_evaluation_id, is_latest_evaluation}`
-`total_delta` = `total_after - total_before` у рассмотренной апелляции. `*_value_label`: «Да», «Нет», «Н/П» или число ступени. `latest_evaluation_id`: последняя завершённая оценка диалога; `is_latest_evaluation: false` значит, что диалог переоценён и решение относится к более старой оценке.
+`total_delta` = `total_after - total_before` у рассмотренной апелляции. `*_value_label`: «Да», «Нет», «N/A» или число ступени. `latest_evaluation_id`: последняя завершённая оценка диалога; `is_latest_evaluation: false` значит, что диалог переоценён и решение относится к более старой оценке.
 - `POST /api/evaluations/{id}/appeals` `{criterion_id, comment, author?}` > `Appeal` (одна открытая апелляция на критерий оценки; иначе 409).
 - `GET /api/appeals?status=open|decided|all&mine=0|1&dialog_id=&sort=newest|oldest` > `{items: [Appeal + {dialog_channel, dialog_language}]}`. `mine=1`: апелляции, поданные текущим пользователем (по имени в сессии). `sort=oldest`: дольше всех ждущие сверху.
 - `GET /api/appeals/{id}` > `{appeal, evaluation: EvalSummary, criterion: <config критерия>, fragment: [Turn], has_audio}`, `fragment`: реплики вокруг `evidence_turns`/`checked_range` (±2), либо вся операторская часть, если доказательств нет.
@@ -119,7 +119,7 @@
 
 ### Обзор и операторы (только чтение, любая роль, без вызова модели)
 Источник: последняя завершённая оценка каждого диалога, финальные значения с учётом апелляций. Столбцы: критерии активного чек-листа; критерия, которого нет в версии старой оценки, в строке нет (`status: "none"`). Баллы строки всегда посчитаны по версии, которой диалог оценивали: `checklist.evaluated_versions` перечисляет эти версии, `mixed: true`, если среди них есть не активная. У колонки `evaluated` = число строк со значением (0 у нового критерия до переоценки), `scored_weights` = веса критерия в версиях строк, `weight_changed: true`, если они отличаются от веса в активной версии.
-`Cell = {v, label, status: pass|partial|fail|na|none, f, pts, w, lost, split, overridden, appeal: {id, status, decision}|null}`. `f`: доля веса (ступень / верхняя ступень, 1 или 0 у бинарного, у флага 1 = грубой ошибки нет), null для Н/П. `pts`, `w`: баллы и вес после перераспределения (у флага null). `lost` = `w - pts`. `split`: прогоны модели разошлись.
+`Cell = {v, label, status: pass|partial|fail|na|none, f, pts, w, lost, split, overridden, appeal: {id, status, decision}|null}`. `f`: доля веса (ступень / верхняя ступень, 1 или 0 у бинарного, у флага 1 = грубой ошибки нет), null для N/A. `pts`, `w`: баллы и вес после перераспределения (у флага null). `lost` = `w - pts`. `split`: прогоны модели разошлись.
 
 - `GET /api/overview?group_id=&language=&channel=` >
   ```

@@ -125,7 +125,7 @@ export async function mount(root, { ctx, query = {} }) {
   /** Итог без цветовой оценки: при грубой ошибке зелёный «хороший» балл вводил бы в заблуждение. */
   function totalText(it) {
     const fin = Number.isFinite(it.final_total) ? it.final_total : it.total;
-    if (!Number.isFinite(fin)) return h('b', null, 'Н/П');
+    if (!Number.isFinite(fin)) return h('b', null, 'N/A');
     const changed = Number.isFinite(it.total) && Math.abs(it.total - fin) > 0.004;
     return h('span', { 'data-tip': changed ? `Исходно ${fmt.n2(it.total)}, после апелляции ${fmt.n2(fin)}` : null },
       changed ? h('span', { class: 'score__orig' }, `${fmt.n2(it.total)} / `) : null, h('b', null, fmt.n2(fin)), h('span', { class: 't-2' }, ' из 100'));

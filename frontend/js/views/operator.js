@@ -63,8 +63,8 @@ export async function mount(root, { params, ctx }) {
       if (!c.applicable) {
         critBox.append(h('div', { class: 'opc__row is-na' },
           h('span', { class: 'opc__code' }, c.code), h('span', { class: 'opc__name' }, c.name),
-          // ни одной оценки по критерию: он новый (нет в версии, по которой оценивали) или всегда был Н/П
-          c.na ? h('span', { class: 'opc__bars t-2 t-12', 'data-tip': `Н/П во всех ${c.na} диалогах` }, 'всегда Н/П')
+          // ни одной оценки по критерию: он новый (нет в версии, по которой оценивали) или всегда был N/A
+          c.na ? h('span', { class: 'opc__bars t-2 t-12', 'data-tip': `N/A во всех ${c.na} диалогах` }, 'всегда N/A')
             : h('span', { class: 'opc__bars t-2 t-12', 'data-tip': 'Критерия не было в версии чек-листа, по которой оценивали эти диалоги. Нужна переоценка.' }, 'не оценивался'),
           h('span'), h('span')));
         continue;

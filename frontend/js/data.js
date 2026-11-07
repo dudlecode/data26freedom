@@ -7,7 +7,7 @@ import { operatorName, operatorKey, UNKNOWN } from './operators.js';
 
 /* ---------- общие правила ---------- */
 
-/** Доля баллов критерия 0..1, null для Н/П. Для флага 1, если грубой ошибки нет. */
+/** Доля баллов критерия 0..1, null для N/A. Для флага 1, если грубой ошибки нет. */
 export function cellFraction(c, value, sc) {
   const n = normValue(value);
   if (!n) return null;

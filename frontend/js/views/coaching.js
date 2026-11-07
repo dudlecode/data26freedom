@@ -74,7 +74,7 @@ export async function mount(root, { params, query, ctx }) {
         metaRow('Дата оценки', fmt.date(ev.finished_at)),
         metaRow('Чек-лист', `версия ${ev.checklist_version ?? '?'}`)),
       h('div', { class: ['sheet__total', !ev.gross && isNum(finalTotal) && finalTotal >= 85 && 'is-good', isNum(finalTotal) && finalTotal < 60 && 'is-low'] },
-        h('span', { class: 'sheet__total-num' }, isNum(finalTotal) ? fmt.n2(finalTotal) : 'Н/П'),
+        h('span', { class: 'sheet__total-num' }, isNum(finalTotal) ? fmt.n2(finalTotal) : 'N/A'),
         h('span', { class: 'sheet__total-of' }, 'из 100'),
         isNum(ev.total) && isNum(finalTotal) && Math.abs(ev.total - finalTotal) > 0.004 ? h('span', { class: 'sheet__total-orig' }, `исходно ${fmt.n2(ev.total)}`) : null)),
     ev.gross ? h('div', { class: 'sheet__gross', role: 'note' }, icon('gross', 16), h('span', null, h('b', null, 'Грубая ошибка. '), 'Нарушение разобрано ниже, оно обсуждается отдельно от итога.')) : null,
@@ -107,7 +107,7 @@ export async function mount(root, { params, query, ctx }) {
   function plain() {
     const L = [];
     L.push(`Разбор диалога ${dlg.id || dialogId}`);
-    L.push(`Оператор: ${opName}. ${channelLabel(dlg.channel)}, ${dlg.language || ''}. Итог ${isNum(finalTotal) ? fmt.n2(finalTotal) : 'Н/П'} из 100.`);
+    L.push(`Оператор: ${opName}. ${channelLabel(dlg.channel)}, ${dlg.language || ''}. Итог ${isNum(finalTotal) ? fmt.n2(finalTotal) : 'N/A'} из 100.`);
     if (ev.gross) L.push('Есть грубая ошибка.');
     if (improve.length) {
       L.push('', 'Что улучшить:');

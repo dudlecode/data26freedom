@@ -236,7 +236,7 @@ export async function mount(root, { query, ctx }) {
       if (code) seen.set(code, i);
       if (!String(c.name || '').trim()) out.push({ message: `${label}: не задано название.`, criterion_index: i, field: 'name' });
       if (!String(c.description || '').trim()) out.push({ message: `${label}: не задано правило оценки.`, criterion_index: i, field: 'description' });
-      if (c.na_allowed && c.type !== 'flag' && !String(c.na_condition || '').trim()) out.push({ message: `${label}: разрешён Н/П, но не указано, когда он ставится.`, criterion_index: i, field: 'na_condition' });
+      if (c.na_allowed && c.type !== 'flag' && !String(c.na_condition || '').trim()) out.push({ message: `${label}: разрешён N/A, но не указано, когда он ставится.`, criterion_index: i, field: 'na_condition' });
       if (c.type === 'scale') c.scale.forEach((st, k) => { if (st.value === '' || !isNum(Number(st.value))) out.push({ message: `${label}: ступень ${k + 1}: укажите число баллов.`, criterion_index: i, field: 'scale', step_index: k }); });
     });
     return out;
@@ -389,7 +389,7 @@ export async function mount(root, { query, ctx }) {
           h('colgroup', null, [28, 48, null, 168, 76, 84, 88, 44].map((w) => h('col', { style: w ? { width: `${w}px` } : null }))),
           h('thead', null, h('tr', null,
             h('th'), h('th', null, 'Код'), h('th', null, 'Название'), h('th', null, 'Секция'), h('th', null, 'Тип'),
-            h('th', { class: 'num' }, 'Вес'), h('th', { class: 'num' }, 'Доля итога'), h('th', null, 'Н/П'))),
+            h('th', { class: 'num' }, 'Вес'), h('th', { class: 'num' }, 'Доля итога'), h('th', null, 'N/A'))),
           critBody))));
     renderCriteria();
 
@@ -632,7 +632,7 @@ export async function mount(root, { query, ctx }) {
         if (document.activeElement !== weightIn) weightIn.value = String(Number(c.weight) || 0);
       } else cells.weight.textContent = c.type === 'flag' ? '' : fmt.n2(Number(c.weight) || 0);
       cells.na.textContent = c.na_allowed && c.type !== 'flag' ? 'Да' : '';
-      cells.na.dataset.label = cells.na.textContent ? 'Н/П' : '';
+      cells.na.dataset.label = cells.na.textContent ? 'N/A' : '';
       for (const el of critBody.querySelectorAll('[data-share]')) {
         const cc = cfg.criteria.find((x) => x.id === el.dataset.share);
         if (cc) el.textContent = shareText(cc);
@@ -725,7 +725,7 @@ export async function mount(root, { query, ctx }) {
     const weightIn = inp('weight', { type: 'number', min: 0, step: 'any', disabled: dis || c.type === 'flag' });
     const naCb = h('input', { type: 'checkbox', checked: c.na_allowed, disabled: dis || c.type === 'flag' });
     const naBox = h('div', { class: 'span-all', hidden: !c.na_allowed || c.type === 'flag' },
-      field('Условие Н/П', area('na_condition', 2, { placeholder: 'Когда критерий неприменим' })), err('na_condition'));
+      field('Условие N/A', area('na_condition', 2, { placeholder: 'Когда критерий неприменим' })), err('na_condition'));
     naCb.addEventListener('change', () => { c.na_allowed = naCb.checked; naBox.hidden = !c.na_allowed; changed(); });
 
     return h('div', { class: 'fgrid fgrid--3', onfocusout: markTouched },
@@ -735,7 +735,7 @@ export async function mount(root, { query, ctx }) {
       h('div', null, field('Секция', sectionSel), err('section')),
       h('div', null, field('Тип', typeSel), err('type')),
       h('div', null, field('Вес', weightIn, { hint: c.type === 'flag' ? 'Флаг не даёт баллов' : null }), err('weight')),
-      h('label', { class: ['check-row', 'span-all', (dis || c.type === 'flag') && 'is-disabled'] }, naCb, 'Разрешён Н/П'),
+      h('label', { class: ['check-row', 'span-all', (dis || c.type === 'flag') && 'is-disabled'] }, naCb, 'Разрешён N/A'),
       h('div', { class: 'span-all' }, field('Правило', area('description', 3, { placeholder: 'Да: что считается выполнением. Нет: что считается нарушением.' })), err('description')),
       naBox,
       c.type === 'scale' ? h('div', { class: 'span-all' }, scaleEditor(c, changed), err('scale')) : null,

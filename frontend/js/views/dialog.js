@@ -213,7 +213,7 @@ export async function mount(root, { params, query, ctx }) {
       clear(evalSel);
       const manyVersions = new Set(evaluations.map((e) => e.checklist_version)).size > 1;
       for (const e of evaluations) {
-        const st = e.status === 'done' ? (isNum(e.final_total) ? fmt.n2(e.final_total) : 'Н/П') : e.status === 'error' ? 'ошибка' : 'в работе';
+        const st = e.status === 'done' ? (isNum(e.final_total) ? fmt.n2(e.final_total) : 'N/A') : e.status === 'error' ? 'ошибка' : 'в работе';
         evalSel.append(h('option', { value: e.id, selected: e.id === currentId },
           [`№${e.id}`, fmt.dateShort(e.created_at), manyVersions ? `v${e.checklist_version ?? '?'}` : null, st].filter(Boolean).join(' · ')));
       }
@@ -381,11 +381,11 @@ export async function mount(root, { params, query, ctx }) {
     const first = !shownEvals.has(ev.id);
     shownEvals.add(ev.id);
     const factor = score.redistribution_factor;
-    const totalNum = h('span', { class: 'evtotal__val' }, isNum(finalTotal) ? fmt.n2(finalTotal) : 'Н/П');
+    const totalNum = h('span', { class: 'evtotal__val' }, isNum(finalTotal) ? fmt.n2(finalTotal) : 'N/A');
     const redistributed = isNum(factor) && factor > 1.0001;
     const totalTip = [
       changed ? `Исходная оценка ИИ ${fmt.n2(origTotal)}, после апелляций ${fmt.n2(finalTotal)}` : null,
-      redistributed ? `Вес критериев Н/П перераспределён: сумма применимых весов ${fmt.n2(score.applicable_weight)}, веса умножены на ${fmt.n2(factor)}` : null,
+      redistributed ? `Вес критериев N/A перераспределён: сумма применимых весов ${fmt.n2(score.applicable_weight)}, веса умножены на ${fmt.n2(factor)}` : null,
       isGross ? 'Грубая ошибка отмечена отдельно и итог не обнуляет' : null,
     ].filter(Boolean).join('\n');
 
@@ -410,12 +410,12 @@ export async function mount(root, { params, query, ctx }) {
           totalNum, h('small', null, 'из 100')),
         isGross ? h('button', { type: 'button', class: 'sig sig--danger evtotal__gross', onclick: () => openCrit(gross[0] || 'gross') }, 'Грубая ошибка') : null,
         changed ? h('div', { class: 'evtotal__orig' }, `Исходно ${fmt.n2(origTotal)}`) : null,
-        redistributed ? h('div', { class: 'evtotal__note' }, 'с учётом Н/П') : null),
+        redistributed ? h('div', { class: 'evtotal__note' }, 'с учётом N/A') : null),
       lostBox));
     if (first && isNum(finalTotal)) countUp(totalNum, finalTotal, fmt.n2, 400);
     clear(mscore).append(...[
       isGross ? h('span', { class: 'sig sig--danger' }, 'Грубая') : null,
-      h('span', { class: ['mtabs__num', !isGross && scoreTone(finalTotal) === 'low' && 'score--low'] }, isNum(finalTotal) ? fmt.n2(finalTotal) : 'Н/П'),
+      h('span', { class: ['mtabs__num', !isGross && scoreTone(finalTotal) === 'low' && 'score--low'] }, isNum(finalTotal) ? fmt.n2(finalTotal) : 'N/A'),
       h('span', { class: 't-2' }, 'из 100')].filter(Boolean));
 
     /* грубые ошибки */
@@ -521,7 +521,7 @@ export async function mount(root, { params, query, ctx }) {
     else {
       const eff = sc.effective_weight;
       const redistributed = isNum(eff) && isNum(c.weight) && Math.abs(eff - c.weight) > 0.004;
-      ptsCell = h('span', { 'data-tip': redistributed ? `Вес ${fmt.n2(c.weight)}, после перераспределения Н/П ${fmt.n2(eff)}` : `Вес ${fmt.n2(c.weight)}` },
+      ptsCell = h('span', { 'data-tip': redistributed ? `Вес ${fmt.n2(c.weight)}, после перераспределения N/A ${fmt.n2(eff)}` : `Вес ${fmt.n2(c.weight)}` },
         fmt.n2(sc.points), h('span', null, ` из ${fmt.n2(eff)}`));
     }
 
@@ -593,7 +593,7 @@ export async function mount(root, { params, query, ctx }) {
           h('p', { class: 'reason' }, linkify(stripLead(r.reasoning, c)))));
       }
       if (normValue(origVal) === 'NA' && r.na_reason) {
-        b.append(h('div', null, h('div', { class: 'reason__label' }, 'Почему Н/П'), h('p', { class: 'reason' }, linkify(r.na_reason))));
+        b.append(h('div', null, h('div', { class: 'reason__label' }, 'Почему N/A'), h('p', { class: 'reason' }, linkify(r.na_reason))));
       }
       if (evTurns.length || range) {
         const inRange = range && evTurns.every((t) => t >= range[0] && t <= range[1]);

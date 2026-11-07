@@ -56,7 +56,7 @@ def improve_text(crit: dict[str, Any], value: str, reasoning: str = "") -> str:
         if clause:
             return f"Недопустимо: {_sentence(clause)}"
     else:
-        clause = _after(desc, "Да:", ("N/A:", "Н/П:", "Нет:"))
+        clause = _after(desc, "Да:", ("N/A:", "Нет:"))
         if clause:
             return f"Ожидается: {_sentence(clause)}"
     return desc
@@ -156,7 +156,7 @@ def build(
 
 def _num(x: Any) -> str:
     if x is None:
-        return "Н/П"
+        return "N/A"
     s = f"{float(x):.2f}"
     return s.replace(".", ",")
 

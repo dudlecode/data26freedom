@@ -51,7 +51,7 @@ def value_label(crit: dict[str, Any] | None, v: Any) -> str | None:
     if s == scoring.NO:
         return "Нет"
     if s == scoring.NA:
-        return "Н/П"
+        return "N/A"
     if crit and crit.get("type") == "scale":
         steps = [int(x["value"]) for x in crit.get("scale") or [] if str(x.get("value", "")).lstrip("-").isdigit()]
         if steps:

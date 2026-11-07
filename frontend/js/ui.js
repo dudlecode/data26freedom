@@ -744,7 +744,7 @@ export function allowedValues(c) {
 export function normValue(v) {
   if (v === null || v === undefined) return '';
   const s = String(v).trim().toUpperCase();
-  const syn = { 'ДА': 'YES', TRUE: 'YES', 'НЕТ': 'NO', FALSE: 'NO', 'N/A': 'NA', 'Н/П': 'NA' };
+  const syn = { 'ДА': 'YES', TRUE: 'YES', 'НЕТ': 'NO', FALSE: 'NO', 'N/A': 'NA', 'N/A': 'NA' };
   if (syn[s]) return syn[s];
   if (/^-?\d+(\.0+)?$/.test(s)) return String(Math.trunc(Number(s)));
   return s;
@@ -759,13 +759,13 @@ export function scaleMax(c) {
 export function shortValue(v) {
   const n = normValue(v);
   if (!n) return '';
-  return n === 'YES' ? 'Да' : n === 'NO' ? 'Нет' : n === 'NA' ? 'Н/П' : n;
+  return n === 'YES' ? 'Да' : n === 'NO' ? 'Нет' : n === 'NA' ? 'N/A' : n;
 }
 
 export function valueLabel(c, v) {
   const n = normValue(v);
   if (!n) return '';
-  if (n === 'NA') return 'Н/П';
+  if (n === 'NA') return 'N/A';
   if (c && c.type === 'scale') return `${n} из ${scaleMax(c)}`;
   return n === 'YES' ? 'Да' : n === 'NO' ? 'Нет' : n;
 }
@@ -802,7 +802,7 @@ export function scoreTone(x) {
 /** Итог в ячейке: финальный, а если апелляция его изменила, то «исходный / финальный». */
 export function scoreCell(total, finalTotal) {
   const fin = isNum(finalTotal) ? finalTotal : total;
-  if (!isNum(fin)) return h('span', { class: 't-2' }, 'Н/П');
+  if (!isNum(fin)) return h('span', { class: 't-2' }, 'N/A');
   const changed = isNum(total) && Math.abs(total - fin) > 0.004;
   return h('span', { class: 'nowrap', 'data-tip': changed ? `Исходно ${fmt.n2(total)}, после апелляции ${fmt.n2(fin)}` : null },
     changed ? h('span', { class: 'score__orig' }, `${fmt.n2(total)} /`) : null,

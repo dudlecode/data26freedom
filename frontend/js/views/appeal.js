@@ -127,12 +127,12 @@ export async function mount(root, { params, ctx }) {
       h('p', { class: 't-13 t-2', style: { marginTop: '2px' } }, dotted([
         TYPE_LABELS[c.type] || c.type,
         c.type !== 'flag' && isNum(Number(c.weight)) ? `вес ${fmt.n2(Number(c.weight))}` : null,
-        c.na_allowed ? 'Н/П разрешён' : null,
+        c.na_allowed ? 'N/A разрешён' : null,
       ])),
       c.description ? h('p', { class: 'rule', style: { marginTop: '8px' } }, c.description) : null,
       steps.length ? h('ol', { class: 'scale' }, steps.map((s) => h('li', { class: normValue(s.value) === normValue(original.value) ? 'is-current' : '' },
         h('b', null, String(s.value)), h('span', null, s.label || '')))) : null,
-      c.na_allowed && c.na_condition ? h('p', { class: 't-13', style: { marginTop: '8px' } }, h('span', { class: 't-2' }, 'Н/П, если: '), c.na_condition) : null));
+      c.na_allowed && c.na_condition ? h('p', { class: 't-13', style: { marginTop: '8px' } }, h('span', { class: 't-2' }, 'N/A, если: '), c.na_condition) : null));
 
     /* оценка ИИ */
     side.append(h('section', { class: 'sect' },

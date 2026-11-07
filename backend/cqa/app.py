@@ -1087,7 +1087,7 @@ def checklist_issues(cfg: Any) -> list[dict[str, Any]]:
         if not str(c.get("description") or "").strip():
             out.append(_issue(f"{label}: не задано правило оценки.", i, cid, "description"))
         if c.get("na_allowed") and ctype != "flag" and not str(c.get("na_condition") or "").strip():
-            out.append(_issue(f"{label}: разрешён Н/П, но не указано, когда он ставится.", i, cid, "na_condition"))
+            out.append(_issue(f"{label}: разрешён N/A, но не указано, когда он ставится.", i, cid, "na_condition"))
         sec = c.get("section")
         if sec and section_ids and str(sec) not in section_ids:
             out.append(_issue(f"{label}: секция {sec!r} не найдена.", i, cid, "section"))

@@ -15,7 +15,7 @@ const SORTS = [
   { value: 'id', label: 'По ID' },
   { value: 'operator', label: 'По оператору' },
 ];
-const VALUE_TEXT = { YES: 'Да', NO: 'Нет', NA: 'Н/П' };
+const VALUE_TEXT = { YES: 'Да', NO: 'Нет', NA: 'N/A' };
 
 export async function mount(root, { query, ctx }) {
   ctx.setTitle('Обзор');
@@ -229,7 +229,7 @@ export async function mount(root, { query, ctx }) {
         sortSel),
       content,
       h('div', { class: 'hm-legend', 'aria-hidden': 'true' },
-        legend('pass', 'Выполнено'), legend('partial', 'Частично'), legend('fail', 'Нет'), legend('na', 'Н/П'), legend('gross', 'Грубая ошибка'),
+        legend('pass', 'Выполнено'), legend('partial', 'Частично'), legend('fail', 'Нет'), legend('na', 'N/A'), legend('gross', 'Грубая ошибка'),
         shown.some((r) => cols.some((c) => tone(c, r.cells[c.id]) === 'none')) ? legend('none', 'Не оценивался') : null,
         h('span', { class: 'hm-legend__i' }, h('span', { class: 'hm-legend__sw hm--pass is-split' }), 'ИИ сомневается'),
         h('span', { class: 'hm-legend__i' }, h('span', { class: 'hm-legend__sw hm--pass is-over' }), 'изменено апелляцией'),
@@ -338,7 +338,7 @@ export async function mount(root, { query, ctx }) {
       const n = (w.fail || 0) + (w.partial || 0);
       const b = h('button', {
         type: 'button', class: ['weak__row', st.fail === w.criterion_id && 'is-on'], 'aria-pressed': String(st.fail === w.criterion_id),
-        'data-tip': `${w.code} ${w.name}\nНарушений ${n} из ${w.applicable} применимых${w.partial ? `, из них частично ${w.partial}` : ''}${w.na ? `. Н/П: ${w.na}` : ''}${w.low_sample ? '\nМало оценок, поэтому в конце списка' : ''}\nНажмите, чтобы оставить в карте только их`,
+        'data-tip': `${w.code} ${w.name}\nНарушений ${n} из ${w.applicable} применимых${w.partial ? `, из них частично ${w.partial}` : ''}${w.na ? `. N/A: ${w.na}` : ''}${w.low_sample ? '\nМало оценок, поэтому в конце списка' : ''}\nНажмите, чтобы оставить в карте только их`,
         onclick: () => { st.fail = st.fail === w.criterion_id ? '' : w.criterion_id; st.col = ''; syncUrl(); renderMain(); },
         onmouseenter: () => setHoverCol(w.criterion_id),
         onmouseleave: () => setHoverCol(null),
