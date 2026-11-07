@@ -1085,6 +1085,12 @@ button.chip:hover { border-color: var(--primary); color: var(--primary); }
 .srow__title { font-size: var(--fs-14); font-weight: 600; }
 .srow__desc { font-size: var(--fs-13); color: var(--text-2); margin-top: 2px; }
 .srow__body { max-width: 560px; }
+.integ { display: flex; flex-direction: column; gap: 4px; }
+.integ__url { font-size: var(--fs-13); word-break: break-all; }
+.audit { display: flex; flex-direction: column; max-height: 360px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--r-ctl); }
+.audit__item { padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.audit__item:last-child { border-bottom: 0; }
+.audit__text { font-size: var(--fs-13); overflow-wrap: anywhere; }
 .key-line { display: flex; align-items: center; gap: 8px; font-size: var(--fs-13); }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-2); flex: none; }
 .dot--ok { background: var(--brand); }
@@ -2180,3 +2186,7 @@ a.kpi:hover b { text-decoration: underline; text-underline-offset: 3px; }
   .tb, .tabbar, .mtabs, .bsheet-backdrop, .sb-scrim { display: none !important; }
   .main { position: static !important; }
 }
+
+/* встраивание в Dynamics 365 / iframe (?embed=1): только содержимое экрана */
+body.is-embed #shell .sb, body.is-embed #shell .tb, body.is-embed #shell .tabbar, body.is-embed #shell .sb-scrim { display: none; }
+body.is-embed #shell .main { margin-left: 0; padding-bottom: 0; }

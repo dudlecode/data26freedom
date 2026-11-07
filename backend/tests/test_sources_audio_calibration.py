@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from cqa import audio, calibration, keys, sources
@@ -122,7 +124,8 @@ def test_key_mask_and_env_write(tmp_path, monkeypatch):
     st = asyncio.run(keys.save("sk-ant-test-0123456789-wxyz"))
     assert st == {"configured": True, "masked": "sk-ant-…wxyz"}
     assert env.read_text(encoding="utf-8") == "A=1\nCQA_ANTHROPIC_API_KEY=sk-ant-test-0123456789-wxyz\nB=2\n"
-    assert (env.stat().st_mode & 0o777) == 0o600
+    if os.name != "nt":  # на Windows chmod не выставляет POSIX-права: доступ к .env ограничивает ACL профиля
+        assert (env.stat().st_mode & 0o777) == 0o600
     with pytest.raises(keys.KeyError_):
         asyncio.run(keys.save("short"))
 

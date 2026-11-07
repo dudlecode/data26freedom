@@ -1,0 +1,31 @@
+{
+  "id": "6f1c2a4e-9b7d-4c1e-8f2a-3d5b7e9a1c20",
+  "event": "evaluation.completed",
+  "occurred_at": "2026-11-08T05:42:10+00:00",
+  "source": "cqa",
+  "version": 1,
+  "url": "https://cqa.example.kz/#/dialog/p1-ru-001",
+  "data": {
+    "evaluation_id": 41,
+    "conversation_id": "p1-ru-001",
+    "group_id": "DEV",
+    "channel": "agent chat",
+    "language": "RU",
+    "checklist": { "id": 1, "name": "Чек-лист качества чатов Freedom Broker", "version": 1 },
+    "status": "done",
+    "total": 82.35,
+    "final_total": 82.35,
+    "gross_error": false,
+    "gross_criteria": [],
+    "needs_review": ["c06"],
+    "criteria": [
+      { "id": "c01", "name": "Установление контакта", "value": "YES", "points": 11.76, "weight": 10, "agreement": 1.0, "reasoning": "T3: оператор поздоровался на языке клиента и представился." },
+      { "id": "c03", "name": "Идентификация", "value": "NA", "points": null, "weight": 20, "agreement": 1.0, "reasoning": "Общий вопрос о тарифах, идентификация не требовалась." },
+      { "id": "c06", "name": "Управление диалогом, скорость и грамотность", "value": "7", "points": 12.35, "weight": 15, "agreement": 0.67, "reasoning": "T9: ответ без предупреждения об ожидании." },
+      { "id": "c08", "name": "Грубые ошибки", "value": "NO", "points": null, "weight": 0, "agreement": 1.0, "reasoning": "Нарушений не выявлено." }
+    ],
+    "error": null,
+    "cost_usd": 0.11,
+    "duration_ms": 38211
+  }
+}

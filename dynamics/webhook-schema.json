@@ -1,0 +1,66 @@
+{
+  "$comment": "Схема тела вебхука CQA. Вставьте её в триггер Power Automate «When an HTTP request is received» (Use sample payload / Request Body JSON Schema), тогда поля data.* станут доступны в следующих шагах потока.",
+  "type": "object",
+  "required": ["id", "event", "occurred_at", "source", "version", "data"],
+  "properties": {
+    "id": { "type": "string", "description": "UUID события, для идемпотентности (повторная доставка приходит с тем же id)" },
+    "event": {
+      "type": "string",
+      "enum": ["evaluation.completed", "evaluation.failed", "appeal.created", "appeal.decided", "checklist.created", "checklist.activated", "webhook.test"]
+    },
+    "occurred_at": { "type": "string", "description": "ISO 8601, UTC" },
+    "source": { "type": "string" },
+    "version": { "type": "integer" },
+    "url": { "type": ["string", "null"], "description": "Ссылка на карточку в CQA (если задан CQA_PUBLIC_URL)" },
+    "data": {
+      "type": "object",
+      "description": "evaluation.*: оценка диалога; appeal.*: апелляция; checklist.*: версия чек-листа",
+      "properties": {
+        "evaluation_id": { "type": "integer" },
+        "conversation_id": { "type": "string" },
+        "group_id": { "type": ["string", "null"] },
+        "channel": { "type": ["string", "null"] },
+        "language": { "type": ["string", "null"] },
+        "status": { "type": "string" },
+        "total": { "type": ["number", "null"] },
+        "final_total": { "type": ["number", "null"] },
+        "gross_error": { "type": "boolean" },
+        "gross_criteria": { "type": "array", "items": { "type": "string" } },
+        "needs_review": { "type": "array", "items": { "type": "string" }, "description": "Критерии, по которым прогоны модели разошлись" },
+        "checklist": {
+          "type": "object",
+          "properties": { "id": { "type": ["integer", "null"] }, "name": { "type": ["string", "null"] }, "version": { "type": ["integer", "null"] } }
+        },
+        "criteria": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "value": { "type": ["string", "null"] },
+              "points": { "type": ["number", "null"] },
+              "weight": { "type": ["number", "null"] },
+              "agreement": { "type": ["number", "null"] },
+              "reasoning": { "type": ["string", "null"] }
+            }
+          }
+        },
+        "id": { "type": "integer", "description": "appeal.*: ID апелляции; checklist.*: ID версии" },
+        "criterion_id": { "type": "string" },
+        "criterion_name": { "type": "string" },
+        "comment": { "type": "string" },
+        "author": { "type": "string" },
+        "decision": { "type": ["string", "null"], "description": "confirmed | changed" },
+        "decision_value": { "type": ["string", "null"] },
+        "decision_reason": { "type": ["string", "null"] },
+        "reviewer": { "type": ["string", "null"] },
+        "total_before": { "type": ["number", "null"] },
+        "total_after": { "type": ["number", "null"] },
+        "error": { "type": ["string", "null"] },
+        "cost_usd": { "type": ["number", "null"] },
+        "duration_ms": { "type": ["integer", "null"] }
+      }
+    }
+  }
+}

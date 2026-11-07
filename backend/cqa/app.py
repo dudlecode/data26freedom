@@ -22,6 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from .text import plain
 from . import (analytics, audio, auth, calibration, coaching, config, db, evaluator, keys, operators, prompting,
                providers, results_export, scoring, sources)
+from . import integrations as ig
 from .preprocess import prepare, render_for_llm
 
 VERSION = "1.0.0"
@@ -443,6 +444,7 @@ async def run_evaluation(eval_id: int) -> None:
                 "finished_at": db.now(),
             },
         )
+        emit_evaluation(eval_id)
     except Exception as ex:  # noqa: BLE001
         if isinstance(ex, providers.ProviderError):
             msg = str(ex)
@@ -456,6 +458,35 @@ async def run_evaluation(eval_id: int) -> None:
             patch["cost_usd"] = getattr(ex, "cost_usd", None)
             patch["usage"] = getattr(ex, "usage", None)
         db.update("evaluations", eval_id, patch)
+        emit_evaluation(eval_id)
+
+
+def n_dialogs(n: int) -> str:
+    """«1 диалог», «3 диалога», «5 диалогов» для журнала действий."""
+    k = "диалог" if n % 10 == 1 and n % 100 != 11 else "диалога" if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14 else "диалогов"
+    return f"{n} {k}"
+
+
+def actor() -> str:
+    """Кто выполнил действие: вошедший пользователь (для журнала действий)."""
+    u = auth.current_user.get()
+    return f"{u['display_name']} ({auth.ROLE_LABEL.get(u['role'], u['role'])})" if u else ""
+
+
+def emit_evaluation(eval_id: int) -> None:
+    """Событие о завершении оценки. Никогда не бросает исключений: интеграции не ломают оценку."""
+    if not ig.webhook_urls():
+        return
+    try:
+        e = db.one("SELECT * FROM evaluations WHERE id = ?", [eval_id])
+        if not e:
+            return
+        d = db.one("SELECT id, group_id, channel, language FROM dialogs WHERE id = ?", [e["dialog_id"]])
+        cl = checklist_cached(e["checklist_id"])
+        event = "evaluation.completed" if e["status"] == "done" else "evaluation.failed"
+        ig.emit(event, ig.evaluation_payload(e, d, cl), url=ig.card_url(f"/dialog/{e['dialog_id']}"))
+    except Exception:  # noqa: BLE001
+        log.exception("webhook for evaluation %s failed", eval_id)
 
 
 # --- app --------------------------------------------------------------------------------
@@ -463,6 +494,7 @@ async def run_evaluation(eval_id: int) -> None:
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     seed_and_recover()
+    ig.bind_loop(asyncio.get_running_loop())
     yield
 
 
@@ -668,8 +700,12 @@ def settings_put(body: Any = Body(default=None)):
     stored = db.get_setting("settings", {}) or {}
     if not isinstance(stored, dict):
         stored = {}
+    before = {k: stored.get(k, config.DEFAULT_SETTINGS.get(k)) for k in patch}
     stored.update(patch)
     db.set_setting("settings", stored)
+    changed = {k: {"from": before[k], "to": v} for k, v in patch.items() if before[k] != v}
+    if changed:
+        ig.audit("settings.changed", "settings", None, "Изменены настройки: " + ", ".join(changed), actor(), changed)
     return {"settings": get_settings()}
 
 
@@ -686,9 +722,11 @@ def key_get():
 async def key_post(body: Any = Body(default=None)):
     key = body_dict(body).get("key")
     try:
-        return await keys.save(str(key or ""))
+        st = await keys.save(str(key or ""))
     except keys.KeyError_ as e:
         raise err(400, str(e))
+    ig.audit("settings.api_key_changed", "settings", None, f"Обновлён ключ Claude API ({st.get('masked')})", actor())
+    return st
 
 
 @app.get("/api/gross-errors")
@@ -952,6 +990,8 @@ async def datasets_fetch(body: Any = Body(default=None)):
         raise err(e.status, str(e))
     renamed: dict[str, str] = {}
     ids = upsert_records(records, gid, "api", renamed)
+    ig.audit("dataset.fetched", "dataset", gid, f"Загружено из API: {n_dialogs(len(ids))}, группа {gid}", actor(),
+             {"count": len(ids), "renamed": renamed})
     return {"group_id": gid, "imported": len(ids), "ids": ids, "renamed": renamed}
 
 
@@ -970,6 +1010,8 @@ def dialogs_import(body: Any = Body(default=None)):
         raise err(400, "Не найдено ни одной записи диалога.")
     renamed: dict[str, str] = {}
     ids = upsert_records(records, group_id, "upload", renamed)
+    ig.audit("dataset.imported", "dataset", group_id, f"Импортировано: {n_dialogs(len(ids))}, группа {group_id}", actor(),
+             {"count": len(ids), "ids": ids[:50], "renamed": renamed})
     return {"imported": len(ids), "ids": ids, "group_id": group_id, "renamed": renamed}
 
 
@@ -1228,7 +1270,14 @@ def checklists_create(body: Any = Body(default=None)):
     )
     if activate:
         db.execute("UPDATE checklists SET is_active = CASE WHEN id = ? THEN 1 ELSE 0 END", [new_id])
-    return checklist_out(checklist_row(new_id))
+    out = checklist_out(checklist_row(new_id))
+    info = {"id": new_id, "name": cfg["name"], "version": version, "active": activate, "note": out.get("note"),
+            "criteria": [{"id": c["id"], "name": c.get("name"), "type": c.get("type"), "weight": c.get("weight")}
+                         for c in cfg["criteria"]]}
+    ig.audit("checklist.created", "checklist", new_id,
+             f"Сохранена версия {version} чек-листа «{cfg['name']}»" + (" и активирована" if activate else ""), actor(), info)
+    ig.emit("checklist.created", info, url=ig.card_url("/checklists"))
+    return out
 
 
 @app.post("/api/checklists/simulate")
@@ -1256,8 +1305,11 @@ def checklists_get(cl_id: int):
 
 @app.post("/api/checklists/{cl_id}/activate")
 def checklists_activate(cl_id: int):
-    checklist_row(cl_id)
+    c = checklist_row(cl_id)
     db.execute("UPDATE checklists SET is_active = CASE WHEN id = ? THEN 1 ELSE 0 END", [cl_id])
+    info = {"id": cl_id, "name": c["name"], "version": c["version"]}
+    ig.audit("checklist.activated", "checklist", cl_id, f"Активирована версия {c['version']} чек-листа «{c['name']}»", actor(), info)
+    ig.emit("checklist.activated", info, url=ig.card_url("/checklists"))
     return {"ok": True}
 
 
@@ -1350,6 +1402,11 @@ async def evaluations_create(body: Any = Body(default=None)):
     eval_ids = [create_evaluation(d, cl["id"], settings) for d in ids]
     for eid in eval_ids:
         runner.submit(eid)
+    if eval_ids:
+        model = settings.get("model")
+        ig.audit("evaluation.started", "checklist", cl["id"],
+                 f"Запущена оценка: {n_dialogs(len(eval_ids))} по чек-листу «{cl['name']}» v{cl['version']} ({model})",
+                 actor(), {"dialog_ids": ids[:100], "evaluation_ids": eval_ids[:100], "model": model})
     return {"evaluation_ids": eval_ids, "skipped": skipped}
 
 
@@ -1472,6 +1529,8 @@ async def evaluations_rerun(eval_id: int):
         raise err(409, "Диалог уже оценивается, дождитесь результата.")
     new_id = create_evaluation(e["dialog_id"], e["checklist_id"], e.get("settings") or get_settings())
     runner.submit(new_id)
+    ig.audit("evaluation.rerun", "evaluation", new_id, f"Повторная оценка диалога {e['dialog_id']} (вместо #{eval_id})",
+             actor(), {"from": eval_id})
     return {"evaluation_id": new_id}
 
 
@@ -1539,7 +1598,14 @@ def appeals_create(eval_id: int, body: Any = Body(default=None)):
             "total_before": e.get("final_total"),
         },
     )
-    return appeal_out(appeal_row(aid), e)
+    out = appeal_out(appeal_row(aid), e)
+    ig.audit("appeal.created", "appeal", aid,
+             f"Апелляция по критерию «{out.get('criterion_name')}» (оценка #{eval_id}, диалог {e['dialog_id']}), "
+             f"оспаривается значение {original.get('value')}", actor(),
+             {"evaluation_id": eval_id, "dialog_id": e["dialog_id"], "criterion_id": cid, "value": original.get("value"),
+              "comment": out.get("comment")})
+    ig.emit("appeal.created", out, url=ig.card_url(f"/appeal/{aid}"))
+    return out
 
 
 @app.get("/api/appeals")
@@ -1658,6 +1724,9 @@ async def appeals_ai_review(appeal_id: int):
         "requested_by": _who(None),
     }
     db.execute("UPDATE appeals SET ai_opinion = ? WHERE id = ? AND status = 'open'", [opinion, appeal_id])
+    ig.audit("appeal.ai_review", "appeal", appeal_id,
+             f"Второе мнение ИИ: {opinion['value']} ({'апелляция обоснована' if opinion['appeal_valid'] else 'оценка верна'})",
+             actor() or f"ИИ {rr.model or ''}", {"value": opinion["value"], "appeal_valid": opinion["appeal_valid"], "model": rr.model})
     return {"appeal": appeal_out(appeal_row(appeal_id), e)}
 
 
@@ -1743,7 +1812,15 @@ def _appeals_decide_locked(appeal_id: int, b: dict[str, Any]) -> dict[str, Any]:
         {"final": final, "final_total": final_total, "gross": int(bool(final["score"]["gross_error"]))},
     )
     db.update("appeals", appeal_id, {"total_after": final_total})
-    return {"appeal": appeal_out(appeal_row(appeal_id), e), "final_total": final_total}
+    out = appeal_out(appeal_row(appeal_id), e)
+    orig_value = (a.get("original") or {}).get("value")
+    ig.audit("appeal.decided", "appeal", appeal_id,
+             f"Решение по апелляции: {'оценка изменена' if decision == 'changed' else 'оценка подтверждена'} "
+             f"({orig_value} → {value}), итог {total_before} → {final_total}. Причина: {reason}",
+             actor(), {"decision": decision, "from": orig_value, "to": value, "reason": reason,
+                       "total_before": total_before, "total_after": final_total})
+    ig.emit("appeal.decided", {**out, "final_total": final_total}, url=ig.card_url(f"/appeal/{appeal_id}"))
+    return {"appeal": out, "final_total": final_total}
 
 
 # --- audio ---
@@ -1861,6 +1938,40 @@ def export(group_id: str | None = None, format: str = Query(default="csv")):
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="cqa_export_{suffix}.csv"'},
     )
+
+
+# --- integrations & audit ---
+
+@app.get("/api/audit")
+def audit_get(entity: str | None = None, entity_id: str | None = None, event: str | None = None, limit: int = 200):
+    return {"items": ig.audit_list(entity, entity_id, event, limit)}
+
+
+@app.get("/api/integrations")
+def integrations_get():
+    return ig.status()
+
+
+@app.get("/api/integrations/deliveries")
+def integrations_deliveries(limit: int = 50):
+    return {"items": ig.deliveries(limit)}
+
+
+@app.post("/api/integrations/webhook/test")
+async def integrations_webhook_test(body: Any = Body(default=None)):
+    """Тестовое событие на настроенные адреса (или на url из тела - для проверки нового потока Power Automate)."""
+    url = str(body_dict(body).get("url") or "").strip()
+    if url and not url.lower().startswith(("http://", "https://")):
+        raise err(400, "url должен начинаться с http:// или https://")
+    targets = [url] if url else ig.webhook_urls()
+    if not targets:
+        raise err(400, "Вебхуки не настроены: задайте CQA_WEBHOOK_URLS в .env или передайте url.")
+    ev = ig.emit("webhook.test", {"message": "Проверка интеграции CQA", "by": actor()}, urls=targets)
+    await ig.wait_idle()
+    rows = db.query("SELECT status, http_status, error, url FROM webhook_deliveries WHERE event_id = ?", [ev["id"]])
+    for r in rows:
+        r["url"] = ig.mask_url(r["url"])
+    return {"event": ev, "deliveries": rows}
 
 
 @app.get("/api/calibration")

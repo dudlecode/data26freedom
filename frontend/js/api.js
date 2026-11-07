@@ -131,6 +131,11 @@ export const api = {
 
   // служебные
   health: () => get('/api/health'),
+  // интеграции (вебхуки Power Automate / Dynamics 365) и журнал действий
+  integrations: () => get('/api/integrations'),
+  deliveries: (limit = 20) => get('/api/integrations/deliveries', { limit }),
+  testWebhook: (url) => post('/api/integrations/webhook/test', url ? { url } : {}),
+  audit: (params) => get('/api/audit', params),
   settings: () => get('/api/settings'),
   saveSettings: (partial) => put('/api/settings', partial),
   stats: (params) => get('/api/stats', params),

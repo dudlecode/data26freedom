@@ -1,4 +1,5 @@
-// Настройки: модель оценки, локальная модель, ключ Claude API. Сохранять может только супервайзер.
+// Настройки: модель оценки, локальная модель, ключ Claude API, интеграции и журнал действий.
+// Сохранять может только супервайзер.
 
 import { api } from '../api.js';
 import { h, clear, icon, button, fmt, toast, errorState, skeleton, field, select, segmented, withBusy, pageHeader, fetchEstimate, plural } from '../ui.js';
@@ -168,11 +169,58 @@ export async function mount(root, { ctx }) {
         field('Новый ключ', keyIn),
         h('div', { class: 'factions' }, keyBtn, keyMsg),
       ]) : null,
+      integRow(row),
+      auditRow(row),
       editable ? h('div', { class: 'settings__foot' }, dirtyNote, h('span', { class: 'spacer' }), msg, saveBtn) : null));
     renderCost();
     snapshot = JSON.stringify(current());
     for (const el of [providerSel, modelSel, effortSel, concIn, baseIn, localModelIn, jsonSel]) { el.addEventListener('input', markDirty); el.addEventListener('change', markDirty); }
     votesSeg.addEventListener('click', () => setTimeout(markDirty, 0));
+  }
+
+  /** Вебхуки для Power Automate и Dynamics 365: адреса задаются на сервере (CQA_WEBHOOK_URLS). */
+  function integRow(row) {
+    const box = h('div', { class: 'fstack' }, h('p', { class: 'srow__desc' }, 'Загрузка...'));
+    const show = (st) => {
+      const w = (st && st.webhooks) || {};
+      const last = w.last;
+      const msg = h('span', { class: 'inline-msg', role: 'status' });
+      const testBtn = button('Отправить тестовое событие', {
+        kind: 'secondary', size: 'sm',
+        onClick: (e) => withBusy(e.currentTarget, async () => {
+          msg.textContent = '';
+          try {
+            const r = await api.testWebhook();
+            const bad = (r.deliveries || []).filter((d) => d.status !== 'ok');
+            msg.textContent = bad.length ? `Не доставлено: ${bad.length} из ${r.deliveries.length}` : 'Доставлено';
+            load();
+          } catch (err) { msg.textContent = err.message; }
+        }),
+      });
+      clear(box).append(
+        w.configured
+          ? h('div', { class: 'integ' },
+            ...(w.urls || []).map((u) => h('div', { class: 'integ__url' }, u)),
+            h('div', { class: 't-12 t-2' }, w.signed ? 'Подпись HMAC-SHA256 включена.' : 'Без подписи: задайте CQA_WEBHOOK_SECRET.'),
+            last ? h('div', { class: 't-12 t-2' }, `Последняя доставка: ${last.event}, ${last.status === 'ok' ? 'успешно' : 'ошибка'}${last.http_status ? ` (${last.http_status})` : ''}, ${fmt.when(last.delivered_at || last.created_at)}`) : null)
+          : h('p', { class: 'srow__desc' }, 'Вебхуки не настроены. Адреса задаются на сервере в CQA_WEBHOOK_URLS, подпись в CQA_WEBHOOK_SECRET.'),
+        ...(w.configured && editable ? [h('div', { class: 'factions' }, testBtn, msg)] : []));
+    };
+    api.integrations().then(show).catch(() => clear(box).append(h('p', { class: 'srow__desc' }, 'Статус интеграций недоступен.')));
+    return row('Интеграции', 'События оценок, апелляций и чек-листов для Power Automate и Dynamics 365.', [box]);
+  }
+
+  /** Кто и что менял: загрузка данных, оценки, апелляции, чек-листы, настройки. */
+  function auditRow(row) {
+    const list = h('div', { class: 'audit' }, h('p', { class: 'srow__desc' }, 'Загрузка...'));
+    api.audit({ limit: 30 }).then((r) => {
+      const items = (r && r.items) || [];
+      clear(list).append(...(items.length ? items.map((x) => h('div', { class: 'audit__item' },
+        h('div', { class: 'audit__text' }, x.summary || x.event),
+        h('div', { class: 't-12 t-2' }, [fmt.when(x.at), x.actor].filter(Boolean).join(' · '))))
+        : [h('p', { class: 'srow__desc' }, 'Записей пока нет.')]));
+    }).catch(() => clear(list).append(h('p', { class: 'srow__desc' }, 'Журнал недоступен.')));
+    return row('Журнал действий', 'Последние 30 действий. Полный журнал: GET /api/audit.', [list]);
   }
 
   await load();

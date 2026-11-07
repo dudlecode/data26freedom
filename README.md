@@ -169,6 +169,8 @@ Qwen работает на отдельной машине g2-standard-8 с GPU 
 
 Интерфейс собран из статических файлов без сборки и внешних библиотек, их можно загрузить как веб-ресурсы. Адрес API задаётся в `frontend/config.js`, разрешённые источники запросов в `CQA_CORS_ORIGINS`. API принимает токен в заголовке `Authorization: Bearer`. Поток в Power Automate по событию «чат закрыт» может вызвать `POST /api/evaluations`, а результат записывается обратно в сущность CRM.
 
+Готовый веб-ресурс для формы обращения лежит в [`dynamics/`](dynamics/README.md): CQA открывается в iframe с `?embed=1&data=dialog=<id>`, без боковой панели. Обратно CQA шлёт вебхуки с подписью HMAC (`CQA_WEBHOOK_URLS`, `CQA_WEBHOOK_SECRET`): оценка завершена, апелляция подана или решена, чек-лист изменён. Все действия пользователей пишутся в журнал (`GET /api/audit`, «Настройки», раздел «Журнал действий»). Коллекция Postman: [`docs/CQA.postman_collection.json`](docs/CQA.postman_collection.json).
+
 ## Структура репозитория
 
 ```
@@ -179,6 +181,7 @@ docs/API.md       контракт API
 results/          файлы результатов для организаторов
 eval/             разметка DEV и прогон локальной модели
 deploy/           установка на сервер
+dynamics/         веб-ресурс и схема событий для Dynamics 365 / Power Automate
 ollama/           Modelfile и образ для Cloud Run
 ```
 
