@@ -14,12 +14,12 @@
 ## Задачи
 
 - [x] `TASK-001` Запуск проекта на Windows - Magurin / Claude Code - `main` - 07.11 16:25
-- [>] `TASK-002` Интеграции и выгрузка results.json - Magurin / Claude Code - `feat/integrations` - 07.11 17:20
+- [>] `TASK-002` Интеграции и выгрузка results.json - Magurin / Claude Code - `feat/integrations` - 07.11 17:20 - перенос без удаления Claude: ветка `feat/integrations-claude`, PR #3 ждёт мержа
 - [>] `TASK-003` Замер локальной модели qwen3:30b - Magurin / Claude Code - `feat/integrations` - 07.11 17:55
 - [!] `TASK-004` Собрать results/dev/results.json - не взята - заблокирована: нужен быстрый доступ к qwen3:30b (внешний хостинг)
 - [x] `TASK-005` Убрать Claude API, оставить один OpenAI-совместимый провайдер под Qwen - Magurin / Claude Code - `feat/integrations` - 07.11 18:26
 - [x] `TASK-006` Перепроверка Qwen по разъяснениям организаторов на DEV - Alex / Claude Code - без ветки (только замер) - 07.11 21:35 - готово 22:13: Qwen по-прежнему нарушает разъяснения по C7, C2 и C8, Claude их соблюдает
-- [>] `TASK-007` Кастомные выпадающие списки и мягкая полировка UI - Magurin / Claude Code - `feat/ui-auth-deploy` - 08.11 04:07
+- [x] `TASK-007` Кастомные выпадающие списки и мягкая полировка UI - Magurin / Claude Code - `feat/ui-auth-deploy` - 08.11 04:07 - готово: свои выпадающие списки для всех select, чекбоксы и радио в стиле UI; в main через PR #2
 - [x] `TASK-008` Влить `feat/ui-auth-deploy` (PR #2) в `main`, обновить README - Alex / Claude Code - `feat/ui-auth-deploy` - 08.11 04:18 - готово 04:21: PR #2 влит (4c134bf), ветка оставлена до закрытия `TASK-007`
 
 ## `TASK-001`
@@ -40,6 +40,9 @@ venv, зависимости, сервер на http://127.0.0.1:8000. 28 из 2
 - вебхуки для Power Automate с HMAC и журналом доставок;
 - встраивание в Dynamics 365 (`?embed=1&data=dialog%3D<id>`, `dynamics/cqa_dialog_card.html`);
 - коллекция Postman, CI на Ubuntu и Windows, 38 тестов.
+
+08.11: PR #1 конфликтует с main (там Claude основная модель). Интеграции перенесены поверх main без удаления Claude:
+журнал действий, вебхуки, Dynamics, Postman, CI - ветка `feat/integrations-claude`, PR #3. `results.py` не перенесён: выгрузка - `results_export.py` / `cqa.submit`.
 
 ## `TASK-003`
 
