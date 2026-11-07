@@ -63,6 +63,8 @@ TEAM = ("supervisor", "reviewer")
 RULES: list[tuple[str, re.Pattern[str], tuple[str, ...]]] = [
     ("GET", re.compile(r"^/api/(overview|operators(/.*)?|gross-errors|calibration|export(/.*)?)$"), TEAM),
     ("PUT", re.compile(r"^/api/settings$"), ("supervisor",)),
+    ("GET", re.compile(r"^/api/(audit|integrations(/.*)?)$"), TEAM),
+    ("POST", re.compile(r"^/api/integrations/webhook/test$"), ("supervisor",)),
     ("POST", re.compile(r"^/api/settings/anthropic-key$"), ("supervisor",)),
     ("POST", re.compile(r"^/api/checklists$"), ("supervisor",)),
     ("POST", re.compile(r"^/api/checklists/\d+/activate$"), ("supervisor",)),

@@ -151,6 +151,14 @@
 - `GET /api/nav-counts?mine=` > `{open_appeals, gross}`: счётчики сайдбара без полных списков. `open_appeals` в области видимости пользователя (`mine=1`: поданные им), `gross` (диалоги с грубой ошибкой в последней оценке) только для `supervisor` и `reviewer`, иначе null.
 - `GET /api/gross-errors?group_id=&language=&channel=` > `{items: [{dialog_id, group_id, channel, language, evaluation_id, operator, operator_key, finished_at, total, final_total, criteria: [{criterion_id, code, name, reasoning, violation: {id, label}, reason, evidence_turns, evidence: [{idx, speaker, text}], agreement, votes, overridden}]}]}`.
 
+### Интеграции и журнал действий
+- `GET /api/audit?entity=&entity_id=&event=&limit=200` > `{items: [{id, at, event, entity, entity_id, actor, summary, data}]}`, новые сверху. Пишется при загрузке и импорте данных, запуске и повторе оценки, апелляции, втором мнении ИИ, решении, сохранении и активации чек-листа, смене настроек и ключа. `actor` - вошедший пользователь («Имя (Роль)»). Супервайзер и проверяющий.
+- `GET /api/integrations` > статус вебхуков: `{webhooks: {configured, urls (подписи в query скрыты), signed, events, last}, public_url, cors_origins, openapi, swagger, postman}`.
+- `GET /api/integrations/deliveries?limit=50` > журнал доставок `{items: [{event_id, event, url, status, http_status, error, attempts, ...}]}`.
+- `POST /api/integrations/webhook/test` `{url?}` > тестовое событие на адреса из `CQA_WEBHOOK_URLS` или на `url`; `{event, deliveries}`. 400, если адресов нет. Только супервайзер.
+- События (POST JSON, `X-CQA-Event`, `X-CQA-Signature: sha256=<hmac>` при `CQA_WEBHOOK_SECRET`, 3 попытки): `evaluation.completed`, `evaluation.failed`, `appeal.created`, `appeal.decided`, `checklist.created`, `checklist.activated`, `webhook.test`. Тело: `{id, event, source: "cqa", version: 1, created_at, url, data}`. Схема: `dynamics/webhook-schema.json`.
+- Коллекция Postman: `docs/CQA.postman_collection.json` (`python -m cqa.postman` пересобирает её по маршрутам).
+
 ### Ключ Claude API из интерфейса
 - `GET /api/settings/anthropic-key` > `{configured, masked}` (`sk-ant-…abcd`, сам ключ никогда не возвращается). `masked` видит только `supervisor`, остальным приходит пустая строка.
 - `POST /api/settings/anthropic-key` `{key}` > проверяет ключ (`client.models.list`, без затрат токенов), записывает `CQA_ANTHROPIC_API_KEY` в `.env` (chmod 600) и обновляет `config.ANTHROPIC_API_KEY` в памяти. 400 с понятным текстом, если ключ не принят. Ключ не логировать.

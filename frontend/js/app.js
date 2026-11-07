@@ -630,9 +630,31 @@ view.addEventListener('animationend', (e) => { if (e.target === view) view.class
 window.addEventListener('cqa:offline', () => { document.getElementById('offline-bar').hidden = false; });
 window.addEventListener('cqa:online', () => { document.getElementById('offline-bar').hidden = true; });
 
+/* ---------- встраивание: Dynamics 365 web resource, iframe ----------
+ * Параметры адреса страницы (не hash):
+ *   ?dialog=<id> | ?appeal=<id> | ?view=<экран> - какой экран открыть;
+ *   ?data=<...> - так Dynamics 365 передаёт параметр веб-ресурсу: «p1-ru-001», «dialog=p1-ru-001» или «appeal=12»;
+ *   ?embed=1 - без боковой панели и верхней полосы, для карточки на форме CRM.
+ * Явный маршрут в hash важнее параметров. */
+function applyEmbedParams() {
+  const qs = new URLSearchParams(location.search);
+  const data = qs.get('data');
+  if (data) {
+    const inner = data.includes('=') ? new URLSearchParams(data) : new URLSearchParams({ dialog: data });
+    for (const [k, v] of inner) if (!qs.has(k)) qs.set(k, v);
+  }
+  if (qs.get('embed') === '1' || qs.get('embed') === 'true') document.body.classList.add('is-embed');
+  if (location.hash && location.hash !== '#' && location.hash !== '#/') return;
+  const base = `${location.pathname}${location.search}`;
+  if (qs.get('dialog')) history.replaceState(null, '', `${base}#/dialog/${encodeURIComponent(qs.get('dialog'))}`);
+  else if (qs.get('appeal')) history.replaceState(null, '', `${base}#/appeal/${encodeURIComponent(qs.get('appeal'))}`);
+  else if (/^[a-z]+$/.test(qs.get('view') || '')) history.replaceState(null, '', `${base}#/${qs.get('view')}`);
+}
+
 /* ---------- старт ---------- */
 
 async function boot() {
+  applyEmbedParams();
   installTooltips();
   applyCollapsed(!!prefs.get('sb.collapsed', false));
   if (railMQ.matches) setRailOpen(false);
