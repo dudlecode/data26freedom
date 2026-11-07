@@ -17,7 +17,7 @@
 - [>] `TASK-002` Интеграции и выгрузка results.json - Magurin / Claude Code - `feat/integrations` - 07.11 17:20
 - [>] `TASK-003` Замер локальной модели qwen3:30b - Magurin / Claude Code - `feat/integrations` - 07.11 17:55
 - [!] `TASK-004` Собрать results/dev/results.json - не взята - заблокирована: нужен быстрый доступ к qwen3:30b (внешний хостинг)
-- [>] `TASK-005` Убрать Claude API, оставить один OpenAI-совместимый провайдер под Qwen - Magurin / Claude Code - `feat/integrations` - 07.11 18:26
+- [x] `TASK-005` Убрать Claude API, оставить один OpenAI-совместимый провайдер под Qwen - Magurin / Claude Code - `feat/integrations` - 07.11 18:26
 
 ## `TASK-001`
 
@@ -58,6 +58,13 @@ DEV не оценён: без модели все 65 записей уйдут �
 `frontend/index.html`, тесты, `requirements.txt`, `README.md`, `docs/API.md`, `.env.example`.
 Готово, когда: в коде и доках нет Claude API, оценка идёт через один провайдер (base_url + модель + ключ), стоимость
 считается по цене за токен из `.env`, тесты зелёные. Таблица «Точность на DEV» в README остаётся как ориентир (Claude Opus).
+
+Итог (07.11 19:05, на ветке `feat/integrations`, коммит вместе с `TASK-002`): один провайдер `OpenAICompatProvider`;
+настройки `base_url / model / json_mode / votes / concurrency / price_*_per_mtok` (env `CQA_MODEL_*`, `CQA_PRICE_*`);
+ключ `CQA_MODEL_API_KEY` (Настройки → Ключ API сервера модели, проверка `GET /models`); `mode` в results.json -
+по адресу (localhost / частная сеть = `local`, иначе `external_api`); баннер - только если сервер модели недоступен;
+старые настройки в базе переводятся автоматически; пакет `anthropic` убран из requirements; 40 тестов.
+Тайм-аут модели теперь пишется прямо: «Модель не ответила за N с» (`CQA_MODEL_TIMEOUT`, по умолчанию 900).
 
 ## Решения и грабли
 
