@@ -692,7 +692,7 @@ export async function mount(root, { query, ctx }) {
       bulk.append(
         h('span', { class: 'bulk__text' }, `Оценить ${nDialogs(ids.length)} по чек-листу`),
         state.checklists.length > 1 ? sel : h('span', { class: 'bulk__text' }, state.checklists[0] ? `v${state.checklists[0].version}` : ''),
-        state.noKey ? h('span', { class: 'bulk__cost t-warn' }, 'Ключ Claude API не задан. ', h('a', { href: '#/settings' }, 'Настройки')) : costEl,
+        state.noKey ? h('span', { class: 'bulk__cost t-warn' }, 'Ключ Claude API не задан на сервере.') : costEl,
         h('span', { class: 'spacer' }),
         run, cancel);
       bulk.hidden = false;

@@ -166,7 +166,8 @@ export function createPalette(ctx) {
     const groups = [];
     const ctxCmds = ctx.commands().map((c) => ({ ...c, icon: c.icon || 'spark' }));
     if (!q) {
-      const rec = loadRecent().map((r) => ({ label: r.label, icon: r.icon || 'dialogs', meta: r.meta || '', run: () => ctx.navigate(r.href), recent: r }));
+      const allowed = new Set(ctx.navItems().map((n) => `s:${n.id}`));
+      const rec = loadRecent().filter((r) => r.kind !== 'screen' || allowed.has(r.key)).map((r) => ({ label: r.label, icon: r.icon || 'dialogs', meta: r.meta || '', run: () => ctx.navigate(r.href), recent: r }));
       if (rec.length) groups.push({ title: 'Недавние', items: rec });
       groups.push({ title: 'Действия', items: [...ctxCmds, ...staticActions()].slice(0, 7) });
       groups.push({ title: 'Экраны', items: screens() });

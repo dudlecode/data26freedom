@@ -27,8 +27,9 @@ const NAV = [
   { id: 'appeals', href: '#/appeals', label: 'Апелляции', operatorLabel: 'Мои апелляции', icon: 'appeals', count: 'warn', primary: true },
   { divider: true },
   { id: 'checklists', href: '#/checklists', label: 'Чек-листы', icon: 'checklists' },
-  { id: 'calibration', href: '#/calibration', label: 'Калибровка', icon: 'calibration', roles: TEAM },
-  { id: 'settings', href: '#/settings', label: 'Настройки', icon: 'settings', roles: ['supervisor'] },
+  // Калибровка видна только проверяющему; настройки скрыты из интерфейса у всех ролей (экран и API на месте)
+  { id: 'calibration', href: '#/calibration', label: 'Калибровка', icon: 'calibration', roles: ['reviewer'] },
+  { id: 'settings', href: '#/settings', label: 'Настройки', icon: 'settings', roles: [] },
 ];
 
 /** Карточка диалога подсвечивает тот раздел, из списка которого её открыли (как крошка в шапке). */
@@ -49,8 +50,8 @@ const routes = [
   { rx: /^\/appeal\/(.+)$/, nav: 'appeals', keys: ['id'], load: () => import('./views/appeal.js'), fill: true },
   { rx: /^\/gross$/, nav: 'gross', roles: TEAM, top: true, load: () => import('./views/gross.js') },
   { rx: /^\/checklists$/, nav: 'checklists', top: true, load: () => import('./views/checklists.js'), fill: true },
-  { rx: /^\/calibration$/, nav: 'calibration', roles: TEAM, top: true, load: () => import('./views/calibration.js') },
-  { rx: /^\/settings$/, nav: 'settings', roles: ['supervisor'], top: true, load: () => import('./views/settings.js') },
+  { rx: /^\/calibration$/, nav: 'calibration', roles: ['reviewer'], top: true, load: () => import('./views/calibration.js') },
+  { rx: /^\/settings$/, nav: 'settings', roles: [], top: true, load: () => import('./views/settings.js') },
 ];
 
 const shell = document.getElementById('shell');

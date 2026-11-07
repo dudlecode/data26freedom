@@ -765,7 +765,7 @@ export async function mount(root, { params, query, ctx }) {
       h('div', { class: 'pop__title', style: { marginBottom: 0 } }, ev ? 'Переоценить диалог' : 'Оценить диалог'),
       field('Версия чек-листа', sel, est ? { hint: costText(est) } : {}),
       hasDecided ? h('p', { class: 't-12 t-warn' }, 'Решения по апелляциям в новую оценку не переносятся.') : null,
-      loaded.noKey ? h('p', { class: 't-12 t-warn' }, 'Ключ Claude API не задан. ', h('a', { href: '#/settings', onclick: () => closePopover() }, 'Настройки')) : null,
+      loaded.noKey ? h('p', { class: 't-12 t-warn' }, 'Ключ Claude API не задан на сервере.') : null,
       h('div', { class: 'factions' }, run, button('Отмена', { kind: 'ghost', size: 'sm', onClick: () => closePopover() }))), { cls: 'pop--form' });
   }
 
