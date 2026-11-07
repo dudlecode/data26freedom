@@ -116,12 +116,14 @@ export const api = {
     setToken(r && r.token);
     return r;
   },
-  async quickLogin(username) {
-    const r = await post('/api/auth/quick', { username });
+  async quickLogin(username, operator_key) {
+    const r = await post('/api/auth/quick', operator_key ? { username, operator_key } : { username });
     setToken(r && r.token);
     return r;
   },
   quickRoles: () => get('/api/auth/quick'),
+  /** Публичный: текущий пользователь или null плюс роли быстрого входа, без 401 при первой загрузке. */
+  session: () => get('/api/auth/session'),
   me: () => get('/api/auth/me'),
   async logout() {
     try { await post('/api/auth/logout'); } finally { setToken(null); }
@@ -151,32 +153,115 @@ export const api = {
   activateChecklist: (id) => post(`/api/checklists/${enc(id)}/activate`),
 
   // оценки
-  evaluate: (dialog_ids, checklist_id, settings) => {
+  evaluate: (dialog_ids, checklist_id, settings, { only_missing = false } = {}) => {
     const body = { dialog_ids };
     if (checklist_id) body.checklist_id = Number(checklist_id);
     if (settings) body.settings = settings;
+    if (only_missing) body.only_missing = true;
     return post('/api/evaluations', body);
   },
   evaluations: (params) => get('/api/evaluations', params),
+  estimate: (params) => get('/api/evaluations/estimate', params),
   evaluation: (id) => get(`/api/evaluations/${enc(id)}`),
   rerun: (id) => post(`/api/evaluations/${enc(id)}/rerun`),
 
   // апелляции (автор и проверяющий берутся сервером из сессии)
   fileAppeal: (evalId, criterion_id, comment) => post(`/api/evaluations/${enc(evalId)}/appeals`, { criterion_id, comment }),
-  appeals: (status = 'all') => get('/api/appeals', { status }),
+  appeals: (status = 'all', params = {}) => get('/api/appeals', { status, ...params }),
   appeal: (id) => get(`/api/appeals/${enc(id)}`),
   aiReview: (id) => post(`/api/appeals/${enc(id)}/ai-review`),
   decide: (id, body) => post(`/api/appeals/${enc(id)}/decide`, body),
+  previewDecision: (id, value) => post(`/api/appeals/${enc(id)}/preview`, { value }),
 
   // грубые ошибки
-  grossErrors: (group_id) => get('/api/gross-errors', { group_id }),
+  grossErrors: (group_id, params = {}) => get('/api/gross-errors', { group_id, ...params }),
+  navCounts: (params = {}) => get('/api/nav-counts', params),
 
   // сдача результатов (формат организаторов 1.0)
   resultsCheck: (group_id) => get('/api/export/results/check', { group_id }),
 
   // калибровка
   calibration: (group_id) => get('/api/calibration', { group_id }),
+
+  // обзор, операторы, разбор (если сервер старый и отвечает 404, данные собираются на клиенте: js/data.js)
+  async overview(params) {
+    try {
+      return normOverview(await get('/api/overview', params));
+    } catch (e) {
+      if (!missing(e)) throw e;
+      const { buildOverview } = await import('./data.js');
+      return normOverview(await buildOverview(api, params || {}));
+    }
+  },
+  async operator(key, params) {
+    try {
+      return normOperator(await get(`/api/operators/${enc(key)}`, params));
+    } catch (e) {
+      if (missing(e)) throw new ApiError('Профили операторов появятся после обновления сервера CQA.', { status: 501 });
+      throw e;
+    }
+  },
+  async coaching(evalId, dialogId) {
+    try {
+      return await get(`/api/evaluations/${enc(evalId)}/coaching`);
+    } catch (e) {
+      if (!missing(e)) throw e;
+      const [{ buildCoaching }, ev] = await Promise.all([import('./data.js'), api.evaluation(evalId)]);
+      const d = await api.dialog(dialogId || ev.dialog_id);
+      return buildCoaching(ev, d);
+    }
+  },
+  /** Пересчёт итогов по сохранённым значениям с новым чек-листом, без вызова модели. null, если сервер не умеет. */
+  async simulateChecklist(config, group_id) {
+    try {
+      return await post('/api/checklists/simulate', group_id ? { config, group_id } : { config });
+    } catch (e) {
+      if (missing(e)) return null;
+      throw e;
+    }
+  },
 };
+
+/** Эндпоинта нет на этой версии сервера. */
+function missing(e) {
+  return !!e && (e.status === 404 || e.status === 405) && !(typeof e.detail === 'string' && /не найден/i.test(e.detail));
+}
+
+/* Адаптеры: страхуют экраны от пропущенных полей и разночтений имён в ответе сервера. */
+const opName = (o) => (o && typeof o === 'object' ? o.name || o.display_name || '' : o || '');
+
+function normOverview(r) {
+  const o = r || {};
+  return {
+    filters: o.filters || {},
+    options: { groups: [], languages: [], channels: [], ...(o.options || {}) },
+    checklist: o.checklist || null,
+    kpi: { dialogs: 0, evaluated: 0, not_evaluated: 0, avg_final: null, gross_dialogs: 0, open_appeals: 0, split_dialogs: 0, ...(o.kpi || {}) },
+    columns: (o.columns || []).map((c) => ({ scored_weights: [], weight_changed: false, ...c })),
+    gross_total: o.gross_total ?? null,
+    rows: (o.rows || []).map((x) => ({ ...x, operator: opName(x.operator) || 'Не указано', cells: x.cells || {} })),
+    weak_spots: o.weak_spots || o.weakSpots || [],
+    operators: (o.operators || []).map((x) => ({ ...x, name: opName(x.name || x) })),
+    unnamed: o.unnamed || null,
+    recent_gross: o.recent_gross || o.recentGross || [],
+    fallback: !!o._fallback,
+  };
+}
+
+function normOperator(r) {
+  const o = r || {};
+  return {
+    ...o,
+    name: opName(o.name) || 'Не указано',
+    languages: o.languages || [],
+    summary: { dialogs: 0, ...(o.summary || {}) },
+    criteria: o.criteria || [],
+    dialogs: o.dialogs || [],
+    gross_items: o.gross_items || o.gross || [],
+  };
+}
+
+export { opName };
 
 export const audioUrl = (dialogId) => `${apiBase()}/api/audio/${enc(dialogId)}`;
 export const exportUrl = (group_id, format) => `${apiBase()}/api/export${qs({ group_id, format })}`;

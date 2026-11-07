@@ -48,7 +48,7 @@ def checked_range(c_from: Any, c_to: Any, n_turns: int) -> list[int] | None:
 
 def run_values(cfg: dict[str, Any], data: dict[str, Any]) -> dict[str, str]:
     """Normalized value per criterion from one model run (missing criteria are skipped)."""
-    crit = (data or {}).get("criteria") or {}
+    crit = prompting.criteria_map(data) or {}
     out: dict[str, str] = {}
     for c in _criteria(cfg):
         item = crit.get(c["id"])
@@ -106,7 +106,7 @@ def aggregate(cfg: dict[str, Any], runs_data: list[dict[str, Any]], n_turns: int
             cand = [i for i, vals in enumerate(per_run_values) if cid in vals]
             src_idx = min(cand, key=lambda i: (_dist(i), i))
             note = f"Итог: медиана голосов ({', '.join(votes)}). Обоснование прогона с оценкой {per_run_values[src_idx][cid]}: "
-        item = (runs_data[src_idx].get("criteria") or {}).get(cid) or {}
+        item = (prompting.criteria_map(runs_data[src_idx]) or {}).get(cid) or {}
         criteria[cid] = {
             "value": value,
             "reasoning": plain(note + str(item.get("reasoning") or "").strip()),
@@ -175,6 +175,8 @@ async def evaluate(
                 }
             )
             continue
+        if isinstance(o.data, dict) and isinstance(o.data.get("criteria"), list):
+            o.data["criteria"] = prompting.criteria_map(o.data)  # compact schema: array -> {id: item}
         if not isinstance(o.data, dict) or not isinstance(o.data.get("criteria"), dict):
             runs.append(
                 {

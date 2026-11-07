@@ -61,10 +61,38 @@ def build_system(checklist: dict[str, Any]) -> str:
    - na_reason: если value = NA, какое условие неприменимости выполнено; иначе пустая строка.
 5. client_request: одной-двумя фразами по-русски: суть запроса клиента и чем закончился диалог.
 
-Номера реплик берите только из транскрипта (T#, нумерация с 1). Ответ: строго JSON по заданной схеме."""
+Номера реплик берите только из транскрипта (T#, нумерация с 1). Ответ: строго JSON по заданной схеме.{_compact_note(checklist)}"""
 
 
-def build_schema(checklist: dict[str, Any]) -> dict[str, Any]:
+def _compact_note(checklist: dict[str, Any]) -> str:
+    if not compact_mode(checklist):
+        return ""
+    ids = ", ".join(c["id"] for c in checklist.get("criteria", []))
+    return (
+        "\nПоле criteria: массив, ровно один элемент на каждый критерий чек-листа, в порядке чек-листа "
+        f"({ids}). В criterion_id укажите идентификатор критерия, в value только значение, допустимое для этого критерия."
+    )
+
+
+# Strict structured output compiles the schema into a grammar. One nested object per
+# criterion (with its own enum) grows that grammar with every criterion, and from about
+# nine criteria the API refuses it ("The compiled grammar is too large"). Up to
+# STRICT_PER_CRITERION criteria the per-criterion schema is kept (it is what the prompt was
+# calibrated on); above that a compact schema of constant size is used: criteria as an
+# array of items with criterion_id from an enum. Values are normalized server-side
+# (scoring.normalize_value), so the looser value enum is safe.
+STRICT_PER_CRITERION = 8
+
+
+def compact_mode(checklist: dict[str, Any]) -> bool:
+    return len(checklist.get("criteria", [])) > STRICT_PER_CRITERION
+
+
+def build_schema(checklist: dict[str, Any], compact: bool | None = None) -> dict[str, Any]:
+    if compact is None:
+        compact = compact_mode(checklist)
+    if compact:
+        return build_compact_schema(checklist)
     props: dict[str, Any] = {}
     for c in checklist.get("criteria", []):
         props[c["id"]] = {
@@ -94,6 +122,57 @@ def build_schema(checklist: dict[str, Any]) -> dict[str, Any]:
         "required": ["client_request", "criteria"],
         "additionalProperties": False,
     }
+
+
+def build_compact_schema(checklist: dict[str, Any]) -> dict[str, Any]:
+    """Grammar size does not depend on the number of criteria."""
+    ids = [c["id"] for c in checklist.get("criteria", [])]
+    values: list[str] = []
+    for c in checklist.get("criteria", []):
+        for v in allowed_values(c):
+            if v not in values:
+                values.append(v)
+    return {
+        "type": "object",
+        "properties": {
+            "client_request": {"type": "string"},
+            "criteria": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "criterion_id": {"type": "string", "enum": ids},
+                        "reasoning": {"type": "string"},
+                        "value": {"type": "string", "enum": values},
+                        "evidence_turns": {"type": "array", "items": {"type": "integer"}},
+                        "checked_from": {"type": "integer"},
+                        "checked_to": {"type": "integer"},
+                        "na_reason": {"type": "string"},
+                    },
+                    "required": ["criterion_id", "reasoning", "value", "evidence_turns", "checked_from",
+                                 "checked_to", "na_reason"],
+                    "additionalProperties": False,
+                },
+            },
+        },
+        "required": ["client_request", "criteria"],
+        "additionalProperties": False,
+    }
+
+
+def criteria_map(data: Any) -> dict[str, Any] | None:
+    """Model output criteria as {criterion_id: item} for both schemas (object or array).
+    The first item wins when the array repeats a criterion. None if the field is missing."""
+    crit = (data or {}).get("criteria") if isinstance(data, dict) else None
+    if isinstance(crit, dict):
+        return crit
+    if isinstance(crit, list):
+        out: dict[str, Any] = {}
+        for item in crit:
+            if isinstance(item, dict) and item.get("criterion_id") and str(item["criterion_id"]) not in out:
+                out[str(item["criterion_id"])] = item
+        return out
+    return None
 
 
 def build_user(dialog_text: str) -> str:

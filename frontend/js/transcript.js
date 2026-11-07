@@ -2,14 +2,14 @@
 // с переходом к реплике и подсветкой текущей, и полоса меток вдоль правого края: где в диалоге
 // находятся реплики-основания выбранного критерия. Используется в карточке диалога и в апелляции.
 
-import { h, icon, SPEAKERS, nTurns, rangeLabel } from './ui.js';
+import { h, icon, SPEAKERS, nTurns, rangeLabel, copyText, toast } from './ui.js';
 
 /**
- * renderTranscript(turns, { audioSrc, collapsePre, idPrefix })
+ * renderTranscript(turns, { audioSrc, collapsePre, idPrefix, linkFor })
  * -> { el, focusTurns(from, to, {seekAudio}), setHover(sel), setPinned(sel), turnText(idx), has(idx), audio }
  * sel = { turns: [idx], range: [from, to] | null } | null
  */
-export function renderTranscript(turns, { audioSrc = null, collapsePre = true, idPrefix = 'turn-' } = {}) {
+export function renderTranscript(turns, { audioSrc = null, collapsePre = true, idPrefix = 'turn-', linkFor = null } = {}) {
   const byIdx = new Map(turns.map((t) => [t.idx, t]));
   const rows = new Map();
   const root = h('div', { class: 'tx' });
@@ -18,14 +18,65 @@ export function renderTranscript(turns, { audioSrc = null, collapsePre = true, i
 
   /* ---------- аудио ---------- */
   if (audioSrc) {
-    audio = h('audio', { controls: true, preload: 'none', src: audioSrc });
+    // свой плеер в токенах Freedom вместо системного: пуск/пауза, время, перемотка, скорость
+    audio = h('audio', { preload: 'none', src: audioSrc });
     const label = h('span', { class: 'player__label' }, 'Запись звонка');
+    const playIco = h('span', { class: 'player__ico' }, icon('play', 16));
+    const playBtn = h('button', { type: 'button', class: 'player__btn', 'aria-label': 'Слушать запись', 'data-tip': 'Слушать запись' }, playIco);
+    const timeEl = h('span', { class: 'player__time' }, '0:00');
+    const scrub = h('input', { type: 'range', class: 'player__scrub', min: 0, max: 1000, step: 1, value: 0, 'aria-label': 'Позиция в записи' });
+    const SPEEDS = [1, 1.25, 1.5, 2];
+    const speedBtn = h('button', { type: 'button', class: 'player__speed', 'aria-label': 'Скорость воспроизведения', 'data-tip': 'Скорость' }, '1x');
+    const lastOffset = Math.max(0, ...turns.map((t) => (typeof t.audio_offset === 'number' ? t.audio_offset : 0)));
+    const clock = (sec) => { const v = Math.max(0, Math.floor(sec || 0)); return `${Math.floor(v / 60)}:${String(v % 60).padStart(2, '0')}`; };
+    const dur = () => (Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : lastOffset);
+    let dragging = false;
+    const paint = () => {
+      const d = dur();
+      timeEl.textContent = d ? `${clock(audio.currentTime)} / ${clock(d)}` : clock(audio.currentTime);
+      if (!dragging) scrub.value = String(d ? Math.round((audio.currentTime / d) * 1000) : 0);
+      scrub.style.setProperty('--p', `${(Number(scrub.value) / 10).toFixed(1)}%`);
+    };
+    const setPlaying = () => {
+      const on = !audio.paused;
+      playIco.replaceChildren(icon(on ? 'pause' : 'play', 16));
+      playBtn.setAttribute('aria-label', on ? 'Пауза' : 'Слушать запись');
+      playBtn.dataset.tip = on ? 'Пауза' : 'Слушать запись';
+    };
+    playBtn.addEventListener('click', () => {
+      if (audio.paused) { if (audio.preload === 'none') audio.preload = 'auto'; audio.play().catch(() => {}); } else audio.pause();
+    });
+    scrub.addEventListener('input', () => {
+      dragging = true;
+      const d = dur();
+      scrub.style.setProperty('--p', `${(Number(scrub.value) / 10).toFixed(1)}%`);
+      if (d) timeEl.textContent = `${clock((Number(scrub.value) / 1000) * d)} / ${clock(d)}`;
+    });
+    scrub.addEventListener('change', () => {
+      dragging = false;
+      const d = dur();
+      if (audio.preload === 'none') audio.preload = 'metadata';
+      try { if (d) audio.currentTime = (Number(scrub.value) / 1000) * d; } catch { /* метаданные ещё не загружены */ }
+      paint();
+    });
+    speedBtn.addEventListener('click', () => {
+      const i = (SPEEDS.indexOf(audio.playbackRate) + 1) % SPEEDS.length;
+      audio.playbackRate = SPEEDS[i];
+      speedBtn.textContent = `${String(SPEEDS[i]).replace('.', ',')}x`;
+    });
+    audio.addEventListener('play', setPlaying);
+    audio.addEventListener('pause', setPlaying);
+    audio.addEventListener('ended', setPlaying);
+    audio.addEventListener('loadedmetadata', paint);
     audio.addEventListener('error', () => {
       label.textContent = 'Запись недоступна';
       label.classList.add('is-error');
+      playBtn.disabled = true;
+      scrub.disabled = true;
     });
-    audio.addEventListener('timeupdate', () => syncPlaying());
-    root.append(h('div', { class: 'player' }, label, audio));
+    audio.addEventListener('timeupdate', () => { syncPlaying(); paint(); });
+    paint();
+    root.append(h('div', { class: 'player' }, playBtn, label, scrub, timeEl, speedBtn, audio));
   }
 
   const offsets = turns.filter((t) => typeof t.audio_offset === 'number').map((t) => [t.audio_offset, t.idx]).sort((a, b) => a[0] - b[0]);
@@ -60,7 +111,12 @@ export function renderTranscript(turns, { audioSrc = null, collapsePre = true, i
     const canPlay = audio && typeof t.audio_offset === 'number';
     const row = h('div', { class: ['turn', `turn--${sp}`], id: `${idPrefix}${t.idx}`, dataset: { idx: t.idx } },
       h('div', { class: 'turn__meta' },
-        h('span', { class: 'turn__no' }, `T${t.idx + 1}`),
+        linkFor
+          ? h('button', {
+            type: 'button', class: 'turn__no turn__copy', 'data-tip': 'Скопировать ссылку на реплику', 'aria-label': `Скопировать ссылку на реплику T${t.idx + 1}`,
+            onclick: async () => { const ok = await copyText(linkFor(t.idx)); toast(ok ? `Ссылка на T${t.idx + 1} скопирована` : 'Не удалось скопировать', ok ? 'success' : 'error', 2500); },
+          }, `T${t.idx + 1}`, icon('link', 12))
+          : h('span', { class: 'turn__no' }, `T${t.idx + 1}`),
         t.clock ? h('span', null, t.clock) : null),
       h('div', null,
         h('div', { class: 'turn__who' }, SPEAKERS[sp], t.boilerplate ? h('span', { class: 'turn__tag' }, 'шаблон') : null),

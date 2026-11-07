@@ -16,11 +16,12 @@ from typing import Any
 from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .text import plain
-from . import audio, auth, calibration, results_export, config, db, evaluator, keys, prompting, providers, scoring, sources
+from . import (analytics, audio, auth, calibration, coaching, config, db, evaluator, keys, operators, prompting,
+               providers, results_export, scoring, sources)
 from .preprocess import prepare, render_for_llm
 
 VERSION = "1.0.0"
@@ -221,10 +222,23 @@ def evaluation_row(eval_id: int) -> dict[str, Any]:
     return e
 
 
-def appeal_out(a: dict[str, Any], e: dict[str, Any] | None = None) -> dict[str, Any]:
+def latest_done_ids() -> dict[str, int]:
+    return {r["dialog_id"]: r["mid"] for r in db.query(
+        "SELECT dialog_id, MAX(id) AS mid FROM evaluations WHERE status = 'done' GROUP BY dialog_id")}
+
+
+def appeal_out(a: dict[str, Any], e: dict[str, Any] | None = None,
+               latest: dict[str, int] | None = None) -> dict[str, Any]:
     e = e or db.one("SELECT id, dialog_id, checklist_id FROM evaluations WHERE id = ?", [a["evaluation_id"]]) or {}
     cl = checklist_cached(e.get("checklist_id")) if e.get("checklist_id") else None
     crit = find_criterion(cl["config"], a["criterion_id"]) if cl else None
+    if latest is None:
+        row = db.one("SELECT MAX(id) AS mid FROM evaluations WHERE dialog_id = ? AND status = 'done'", [e.get("dialog_id")])
+        latest_id = (row or {}).get("mid")
+    else:
+        latest_id = latest.get(e.get("dialog_id"))
+    before, after = a.get("total_before"), a.get("total_after")
+    orig_value = (a.get("original") or {}).get("value")
     return {
         "id": a["id"],
         "evaluation_id": a["evaluation_id"],
@@ -242,8 +256,14 @@ def appeal_out(a: dict[str, Any], e: dict[str, Any] | None = None) -> dict[str, 
         "reviewer": a.get("reviewer"),
         "created_at": a.get("created_at"),
         "decided_at": a.get("decided_at"),
-        "total_before": a.get("total_before"),
-        "total_after": a.get("total_after"),
+        "total_before": before,
+        "total_after": after,
+        "total_delta": round(after - before, 2) if a["status"] == "decided" and before is not None and after is not None else None,
+        "original_value_label": analytics.value_label(crit, orig_value),
+        "decision_value_label": analytics.value_label(crit, a.get("decision_value")),
+        # a newer evaluation of the dialog does not carry this decision over
+        "latest_evaluation_id": latest_id,
+        "is_latest_evaluation": latest_id is None or latest_id == a["evaluation_id"],
     }
 
 
@@ -254,19 +274,62 @@ def appeal_row(appeal_id: int) -> dict[str, Any]:
     return a
 
 
-def latest_done_by_dialog(group_id: str | None = None) -> list[tuple[dict[str, Any], dict[str, Any]]]:
-    """[(dialog, latest finished evaluation)] for dialogs that have one."""
+def dialog_filter_sql(
+    group_id: str | None = None, language: str | None = None, channel: str | None = None, *, full: bool = False
+) -> tuple[str, list[Any]]:
+    cols = "*" if full else "id, group_id, channel, language, audio_url, imported_at"
+    sql, params = f"SELECT {cols} FROM dialogs WHERE 1=1", []
+    for col, val in (("group_id", group_id), ("language", language), ("channel", channel)):
+        if val:
+            sql += f" AND {col} = ?"
+            params.append(val)
+    return sql + " ORDER BY group_id, id", params
+
+
+def latest_done_by_dialog(
+    group_id: str | None = None, language: str | None = None, channel: str | None = None, *, full: bool = False
+) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    """[(dialog, latest finished evaluation)] for dialogs that have one. `full` adds the transcript."""
     sql = """SELECT e.* FROM evaluations e
              JOIN (SELECT dialog_id, MAX(id) AS mid FROM evaluations WHERE status = 'done' GROUP BY dialog_id) m
                ON e.id = m.mid"""
     evals = {e["dialog_id"]: e for e in db.query(sql)}
-    dsql = "SELECT id, group_id, channel, language, audio_url FROM dialogs"
-    params: list[Any] = []
-    if group_id:
-        dsql += " WHERE group_id = ?"
-        params.append(group_id)
-    dsql += " ORDER BY group_id, id"
+    dsql, params = dialog_filter_sql(group_id, language, channel, full=full)
     return [(d, evals[d["id"]]) for d in db.query(dsql, params) if d["id"] in evals]
+
+
+_FOLD = str.maketrans({"ё": "е", "ә": "а", "ғ": "г", "қ": "к", "ң": "н", "ө": "о", "ұ": "у", "ү": "у", "һ": "х", "і": "и"})
+
+
+def fold(x: Any) -> str:
+    """Search form: casefold, ё = е, Kazakh letters as their Russian look-alikes (Мұрат = мурат)."""
+    return str(x or "").strip().casefold().translate(_FOLD)
+
+
+def search_dialogs(rows: list[dict[str, Any]], q: str | None) -> list[dict[str, Any]]:
+    """Case-insensitive match on the dialog ID, the operator name or any line of the transcript
+    (ё = е). Rows need the transcript."""
+    ql = fold(q)
+    if not ql:
+        return rows
+
+    norm = fold
+
+    return [
+        r for r in rows
+        if ql in norm(r["id"]) or ql in norm(operators.for_dialog(r))
+        or any(ql in norm(t.get("text")) for t in (r.get("transcript") or []))
+    ]
+
+
+def latest_any_by_dialog() -> dict[str, dict[str, Any]]:
+    return {
+        e["dialog_id"]: e
+        for e in db.query(
+            """SELECT e.* FROM evaluations e
+               JOIN (SELECT dialog_id, MAX(id) AS mid FROM evaluations GROUP BY dialog_id) m ON e.id = m.mid"""
+        )
+    }
 
 
 def ensure_schema() -> None:
@@ -455,7 +518,8 @@ async def _auth_middleware(request: Request, call_next):
     roles = auth.allowed_roles(method, path)
     if user["role"] not in roles:
         need = ", ".join(auth.ROLE_LABEL[r] for r in roles)
-        return JSONResponse({"detail": f"Недостаточно прав. Действие доступно ролям: {need}."}, status_code=403)
+        word = "роли" if len(roles) == 1 else "ролям:"
+        return JSONResponse({"detail": f"Недостаточно прав. Действие доступно {word} {need}."}, status_code=403)
     token = auth.current_user.set(user)
     try:
         return await call_next(request)
@@ -479,18 +543,88 @@ def auth_login(body: Any = Body(default=None)):
 def auth_quick(body: Any = Body(default=None)):
     """One-click demo sign-in for the roles listed in CQA_QUICK_LOGIN_ROLES."""
     b = body_dict(body)
-    res = auth.quick_login(str(b.get("username") or ""))
+    bound = None
+    key = str(b.get("operator_key") or "").strip().casefold().replace("ё", "е")
+    if key and str(b.get("username") or "").strip().lower() == "operator":
+        name = data_operators().get(key)
+        if not name:
+            raise err(404, "Оператор не найден.")
+        bound = (key, name)
+    res = auth.quick_login(str(b.get("username") or ""), bound)
     if not res:
-        raise err(403, "Быстрый вход для этой роли выключен. Введите пароль.")
+        raise err(403, "Вход для этой роли выключен на сервере.")
     user, token = res
     resp = JSONResponse({"user": user, "token": token})
     resp.set_cookie(auth.COOKIE, token, max_age=auth.SESSION_TTL_S, httponly=True, samesite="lax")
     return resp
 
 
+def data_operators() -> dict[str, str]:
+    """{operator_key: name} of the named operators found in the dialogs."""
+    out: dict[str, str] = {}
+    for d in db.query("SELECT id, channel, language, transcript, imported_at FROM dialogs ORDER BY group_id, id"):
+        inf = operators.info(d)
+        if inf["operator_key"] != operators.UNKNOWN_KEY:
+            out.setdefault(inf["operator_key"], inf["operator"])
+    return out
+
+
+def quick_operators() -> list[dict[str, Any]]:
+    """Operators an operator session can be bound to, with their evaluated dialogs."""
+    latest = latest_done_ids()
+    slots: dict[str, dict[str, Any]] = {}
+    for d in db.query("SELECT id, group_id, channel, language, transcript, imported_at FROM dialogs ORDER BY group_id, id"):
+        inf = operators.info(d)
+        if inf["operator_key"] == operators.UNKNOWN_KEY:
+            continue
+        slot = slots.setdefault(inf["operator_key"], {"key": inf["operator_key"], "name": inf["operator"],
+                                                      "dialogs": 0, "evaluated": 0, "languages": []})
+        slot["dialogs"] += 1
+        slot["evaluated"] += 1 if d["id"] in latest else 0
+        if d.get("language") and d["language"] not in slot["languages"]:
+            slot["languages"].append(d["language"])
+    return sorted(slots.values(), key=lambda o: (-o["evaluated"], o["name"].casefold()))
+
+
+def quick_info() -> dict[str, Any]:
+    users = auth.quick_users()
+    roles = [u["role"] for u in users]
+    return {"enabled": bool(users), "roles": roles, "users": users,
+            "operators": quick_operators() if "operator" in roles else []}
+
+
+def operator_scope() -> str | None:
+    """operator_key of a bound operator session (sees only own dialogs), else None."""
+    u = auth.current_user.get()
+    if u and u.get("role") == "operator" and u.get("operator_key"):
+        return u["operator_key"]
+    return None
+
+
+def guard_dialog(d: dict[str, Any]) -> None:
+    key = operator_scope()
+    if key and operators.info(d)["operator_key"] != key:
+        raise err(403, "Это диалог другого оператора.")
+
+
+def scoped_dialog_ids() -> set[str] | None:
+    key = operator_scope()
+    if not key:
+        return None
+    return {d["id"] for d in db.query("SELECT id, channel, language, transcript, imported_at FROM dialogs")
+            if operators.info(d)["operator_key"] == key}
+
+
 @app.get("/api/auth/quick")
 def auth_quick_roles():
-    return {"roles": sorted(auth.quick_roles())}
+    return quick_info()
+
+
+@app.get("/api/auth/session")
+def auth_session(request: Request):
+    """Public: the signed-in user or null (no 401 on the first page load) plus quick sign-in roles."""
+    user = auth.user_from_token(auth.token_from_request(request.headers, request.cookies))
+    return {"user": user, "quick": quick_info()}
 
 
 @app.post("/api/auth/logout")
@@ -541,7 +675,11 @@ def settings_put(body: Any = Body(default=None)):
 
 @app.get("/api/settings/anthropic-key")
 def key_get():
-    return keys.status()
+    st = keys.status()
+    u = auth.current_user.get()
+    if u and u.get("role") != "supervisor":
+        st["masked"] = ""  # only the supervisor (who manages the key) sees even the masked key
+    return st
 
 
 @app.post("/api/settings/anthropic-key")
@@ -554,10 +692,10 @@ async def key_post(body: Any = Body(default=None)):
 
 
 @app.get("/api/gross-errors")
-def gross_errors(group_id: str | None = None):
+def gross_errors(group_id: str | None = None, language: str | None = None, channel: str | None = None):
     """Dialogs whose latest finished evaluation (after appeal decisions) has a gross-error flag."""
     items = []
-    for d, e in latest_done_by_dialog(group_id):
+    for d, e in latest_done_by_dialog(group_id, language, channel, full=True):
         final = e.get("final") or {}
         score = final.get("score") or (e.get("result") or {}).get("score") or {}
         flagged = score.get("gross_criteria") or []
@@ -565,8 +703,7 @@ def gross_errors(group_id: str | None = None):
             continue
         cfg = (checklist_cached(e["checklist_id"]) or {}).get("config") or {}
         res = (e.get("result") or {}).get("criteria") or {}
-        rec = db.one("SELECT transcript FROM dialogs WHERE id = ?", [d["id"]]) or {}
-        turns = rec.get("transcript") or []
+        turns = d.get("transcript") or []
         crits = []
         for cid in flagged:
             c = find_criterion(cfg, cid) or {}
@@ -577,6 +714,8 @@ def gross_errors(group_id: str | None = None):
                 "code": c.get("code") or cid,
                 "name": c.get("name") or cid,
                 "reasoning": r.get("reasoning") or "",
+                "violation": analytics.violation_of(r.get("reasoning")),
+                "reason": analytics.reason_body(r.get("reasoning")),
                 "evidence_turns": ev,
                 "evidence": [{"idx": i, "speaker": turns[i].get("speaker"), "text": turns[i].get("text")} for i in ev[:3]],
                 "agreement": r.get("agreement"),
@@ -585,21 +724,58 @@ def gross_errors(group_id: str | None = None):
             })
         items.append({
             "dialog_id": d["id"], "group_id": d.get("group_id"), "channel": d.get("channel"),
-            "language": d.get("language"), "evaluation_id": e["id"],
+            "language": d.get("language"), "evaluation_id": e["id"], **operators.info(d),
+            "finished_at": e.get("finished_at"),
             "total": e.get("total"), "final_total": e.get("final_total"), "criteria": crits,
         })
     return {"items": items}
 
 
+@app.get("/api/nav-counts")
+def nav_counts(mine: int = 0):
+    """Sidebar badges without the full payloads: open appeals in the user's scope (`mine=1`: filed by
+    the user) and, for the team, dialogs whose latest evaluation has a gross error."""
+    u = auth.current_user.get()
+    sql, params = "SELECT a.id, e.dialog_id FROM appeals a LEFT JOIN evaluations e ON e.id = a.evaluation_id WHERE a.status = 'open'", []
+    if mine:
+        sql += " AND a.author = ?"
+        params.append(u["display_name"] if u else "")
+    rows = db.query(sql, params)
+    scope = scoped_dialog_ids()
+    if scope is not None:
+        rows = [r for r in rows if r["dialog_id"] in scope]
+    gross = None
+    if not u or u.get("role") in auth.TEAM:
+        gross = 0
+        for _d, e in latest_done_by_dialog():
+            final = e.get("final") or {}
+            score = final.get("score") or (e.get("result") or {}).get("score") or {}
+            if score.get("gross_criteria"):
+                gross += 1
+    return {"open_appeals": len(rows), "gross": gross}
+
+
+UPLOAD_GROUP = "UPLOAD"
+
+
+def submission_groups(group_id: str | None) -> list[str]:
+    """Groups that go into results.json. Without an explicit group every group except the
+    manual test uploads (UPLOAD), unless nothing else exists."""
+    if group_id:
+        return [group_id]
+    groups = [g["group_id"] for g in db.query("SELECT DISTINCT group_id FROM dialogs ORDER BY group_id")]
+    real = [g for g in groups if g != UPLOAD_GROUP]
+    return real or groups
+
+
 def export_selection(group_id: str | None, checklist_id: int | None = None):
     """Dialogs of a group with the evaluation to export: the latest finished one (optionally of
     a given checklist version), else the latest attempt so failures are reported, not hidden."""
-    dsql = "SELECT id, group_id, transcript FROM dialogs"
-    params: list[Any] = []
-    if group_id:
-        dsql += " WHERE group_id = ?"
-        params.append(group_id)
-    dialogs = db.query(dsql + " ORDER BY id", params)
+    groups = submission_groups(group_id)
+    if not groups:
+        return [], {}, {}
+    dsql = f"SELECT id, group_id, transcript FROM dialogs WHERE group_id IN ({','.join('?' * len(groups))})"
+    dialogs = db.query(dsql + " ORDER BY id", groups)
     chosen: dict[str, dict[str, Any]] = {}
     for d in dialogs:
         rows = db.query("SELECT * FROM evaluations WHERE dialog_id = ? ORDER BY id DESC", [d["id"]])
@@ -622,7 +798,7 @@ def export_results(group_id: str | None = None, checklist_id: int | None = None,
     doc = results_export.build(dialogs, chosen, configs, team_name or db.get_setting("team_name"))
     errors = results_export.validate(doc, [d["id"] for d in dialogs])
     body = json.dumps(doc, ensure_ascii=False, indent=2)
-    headers = {"X-CQA-Validation-Errors": str(len(errors))}
+    headers = {"X-CQA-Validation-Errors": str(len(errors)), "X-CQA-Groups": ",".join(submission_groups(group_id))}
     if download:
         headers["Content-Disposition"] = 'attachment; filename="results.json"'
     return Response(body, media_type="application/json; charset=utf-8", headers=headers)
@@ -634,6 +810,7 @@ def export_results_check(group_id: str | None = None, checklist_id: int | None =
     doc = results_export.build(dialogs, chosen, configs, db.get_setting("team_name"))
     res = doc["results"]
     return {
+        "groups": submission_groups(group_id),
         "count": len(res),
         "ok": sum(1 for r in res if r["status"] == "ok"),
         "errors_in_results": sum(1 for r in res if r["status"] == "error"),
@@ -644,15 +821,19 @@ def export_results_check(group_id: str | None = None, checklist_id: int | None =
 
 
 @app.get("/api/stats")
-def stats(group_id: str | None = None):
-    dsql, params = "SELECT COUNT(*) AS n FROM dialogs", []
-    if group_id:
-        dsql += " WHERE group_id = ?"
-        params = [group_id]
-    n_dialogs = db.one(dsql, params)["n"]
-    pairs = latest_done_by_dialog(group_id)
+def stats(group_id: str | None = None, language: str | None = None, channel: str | None = None,
+          q: str | None = None):
+    """Summary of what the dialogs list shows: the same filters as GET /api/dialogs."""
+    dsql, params = dialog_filter_sql(group_id, language, channel, full=bool(q))
+    drows = search_dialogs(db.query(dsql, params), q)
+    scope = scoped_dialog_ids()
+    if scope is not None:
+        drows = [d for d in drows if d["id"] in scope]
+    ids = {d["id"] for d in drows}
+    n_dialogs = len(drows)
+    pairs = [(d, e) for d, e in latest_done_by_dialog(group_id, language, channel) if d["id"] in ids]
     totals, by_lang, by_crit = [], {}, {}
-    gross_count = 0
+    gross_count = split = 0
     for d, e in pairs:
         # final result wins (it can legitimately be null after an appeal makes everything N/A)
         ft = e.get("final_total") if e.get("final") else e.get("total")
@@ -660,6 +841,10 @@ def stats(group_id: str | None = None):
             totals.append(ft)
         if e.get("gross"):
             gross_count += 1
+        agreements = [c.get("agreement") for c in ((e.get("result") or {}).get("criteria") or {}).values()
+                      if isinstance(c, dict) and c.get("agreement") is not None]
+        if agreements and min(agreements) < 1:
+            split += 1
         lang = d.get("language") or "-"
         slot = by_lang.setdefault(lang, {"count": 0, "_sum": 0.0, "_n": 0})
         slot["count"] += 1
@@ -677,6 +862,20 @@ def stats(group_id: str | None = None):
         slot["avg"] = round(slot["_sum"] / slot["_n"], 2) if slot["_n"] else None
         slot.pop("_sum")
         slot.pop("_n")
+    # status of the latest attempt (any status) of each shown dialog
+    latest = latest_any_by_dialog()
+    counts = appeal_counts([e["id"] for e in latest.values() if e["dialog_id"] in ids])
+    st = {"not_evaluated": 0, "active": 0, "error": 0, "with_appeal": 0}
+    for did in ids:
+        e = latest.get(did)
+        if e is None:
+            st["not_evaluated"] += 1
+        elif e["status"] in ("queued", "running"):
+            st["active"] += 1
+        elif e["status"] == "error":
+            st["error"] += 1
+        if e is not None and counts.get(e["id"], {}).get("open"):
+            st["with_appeal"] += 1
     eval_cost = db.one("SELECT COALESCE(SUM(cost_usd), 0) AS s FROM evaluations")["s"] or 0.0
     appeal_cost = 0.0
     for a in db.query("SELECT ai_opinion FROM appeals WHERE ai_opinion IS NOT NULL"):
@@ -689,6 +888,11 @@ def stats(group_id: str | None = None):
         "evaluated": len(pairs),
         "avg_total": round(sum(totals) / len(totals), 2) if totals else None,
         "gross_count": gross_count,
+        "split_count": split,
+        "not_evaluated": st["not_evaluated"],
+        "active": st["active"],
+        "error_count": st["error"],
+        "with_open_appeal": st["with_appeal"],
         "open_appeals": open_appeals,
         "total_cost_usd": round(eval_cost + appeal_cost, 6),
         "by_language": by_lang,
@@ -773,31 +977,12 @@ def dialogs_import(body: Any = Body(default=None)):
 def dialogs_list(
     group_id: str | None = None, language: str | None = None, channel: str | None = None, q: str | None = None
 ):
-    sql, params = "SELECT * FROM dialogs WHERE 1=1", []
-    if group_id:
-        sql += " AND group_id = ?"
-        params.append(group_id)
-    if language:
-        sql += " AND language = ?"
-        params.append(language)
-    if channel:
-        sql += " AND channel = ?"
-        params.append(channel)
-    rows = db.query(sql + " ORDER BY group_id, id", params)
-    if q:
-        ql = q.strip().lower()
-        rows = [
-            r
-            for r in rows
-            if ql in r["id"].lower() or any(ql in str(t.get("text", "")).lower() for t in (r.get("transcript") or []))
-        ]
-    latest = {
-        e["dialog_id"]: e
-        for e in db.query(
-            """SELECT e.* FROM evaluations e
-               JOIN (SELECT dialog_id, MAX(id) AS mid FROM evaluations GROUP BY dialog_id) m ON e.id = m.mid"""
-        )
-    }
+    sql, params = dialog_filter_sql(group_id, language, channel, full=True)
+    rows = search_dialogs(db.query(sql, params), q)
+    scope = scoped_dialog_ids()
+    if scope is not None:
+        rows = [r for r in rows if r["id"] in scope]
+    latest = latest_any_by_dialog()
     counts = appeal_counts([e["id"] for e in latest.values()])
     items = [
         {
@@ -807,6 +992,7 @@ def dialogs_list(
             "language": r["language"],
             "turns": len(r.get("transcript") or []),
             "imported_at": r.get("imported_at"),
+            **operators.info(r),
             "latest": eval_summary(latest[r["id"]], counts) if r["id"] in latest else None,
         }
         for r in rows
@@ -818,6 +1004,7 @@ def dialogs_list(
 @app.get("/api/dialogs/{dialog_id}")
 def dialog_get(dialog_id: str):
     d = dialog_row(dialog_id)
+    guard_dialog(d)
     p = prepare(dialog_record(d))
     evals = db.query("SELECT * FROM evaluations WHERE dialog_id = ? ORDER BY id DESC", [dialog_id])
     return {
@@ -827,6 +1014,7 @@ def dialog_get(dialog_id: str):
             "channel": d["channel"],
             "language": d["language"],
             "has_audio": bool(d.get("audio_url")),
+            **operators.info(d),
         },
         "turns": [t.to_dict() for t in p.turns],
         "facts": p.facts,
@@ -842,66 +1030,109 @@ def total_weight(cfg: dict[str, Any]) -> float:
     )
 
 
-def checklist_errors(cfg: Any) -> list[str]:
+def _issue(msg: str, index: int | None = None, cid: str | None = None, field: str | None = None,
+           step: int | None = None) -> dict[str, Any]:
+    return {"message": msg, "criterion_index": index, "criterion_id": cid or None, "field": field, "step_index": step}
+
+
+def checklist_issues(cfg: Any) -> list[dict[str, Any]]:
+    """Checklist problems with the place they belong to, so the editor can mark the field:
+    {message, criterion_index (0-based) | null, criterion_id, field, step_index}."""
     if not isinstance(cfg, dict):
-        return ["Конфигурация чек-листа должна быть объектом."]
-    errs: list[str] = []
+        return [_issue("Конфигурация чек-листа должна быть объектом.")]
+    out: list[dict[str, Any]] = []
     if not str(cfg.get("name") or "").strip():
-        errs.append("Не задано название чек-листа.")
+        out.append(_issue("Не задано название чек-листа.", field="name"))
     crits = cfg.get("criteria")
     if crits is not None and not isinstance(crits, list):
-        return errs + ["Поле criteria должно быть массивом."]
+        return out + [_issue("Поле criteria должно быть массивом.", field="criteria")]
+    if not crits:
+        return out + [_issue("В чек-листе нет критериев.", field="criteria")]
+    sections = cfg.get("sections") or []
+    section_ids = {str(sct.get("id")) for sct in sections if isinstance(sct, dict)}
     seen_ids: set[str] = set()
-    for i, c in enumerate(crits or [], 1):
+    seen_codes: dict[str, int] = {}
+    positive = False
+    for i, c in enumerate(crits):
         if not isinstance(c, dict):
-            errs.append(f"Критерий №{i}: должен быть объектом.")
+            out.append(_issue(f"Критерий №{i + 1}: должен быть объектом.", i))
             continue
         cid = str(c.get("id") or "").strip()
-        label = c.get("name") or cid or f"Критерий №{i}"
+        code = str(c.get("code") or "").strip()
+        label = str(c.get("name") or "").strip() or (f"Критерий {code}" if code else f"Критерий №{i + 1}")
+        ctype = c.get("type")
         if not cid:
-            errs.append(f"Критерий №{i}: не задан ID.")
+            out.append(_issue(f"{label}: не задан ID.", i, None, "id"))
         elif cid in seen_ids:
-            errs.append(f"ID критерия {cid!r} повторяется (пробелы по краям не учитываются).")
+            out.append(_issue(f"{label}: ID {cid} уже есть у другого критерия.", i, cid, "id"))
         seen_ids.add(cid)
+        if code:
+            if code in seen_codes:
+                out.append(_issue(f"{label}: код {code} уже есть у другого критерия.", i, cid, "code"))
+            seen_codes.setdefault(code, i)
+        if not str(c.get("name") or "").strip():
+            out.append(_issue(f"{label}: не задано название.", i, cid, "name"))
+        if ctype not in ("binary", "scale", "flag"):
+            out.append(_issue(f"{label}: неизвестный тип ответа {ctype!r}.", i, cid, "type"))
         try:
             w = float(c.get("weight", 0) or 0)
             if not math.isfinite(w):
-                errs.append(f"{label}: вес должен быть конечным числом.")
+                out.append(_issue(f"{label}: вес должен быть конечным числом.", i, cid, "weight"))
+            elif w < 0:
+                out.append(_issue(f"{label}: вес не может быть отрицательным.", i, cid, "weight"))
+            elif w > 0 and ctype != "flag":
+                positive = True
         except (TypeError, ValueError):
-            pass  # reported by scoring.validate_checklist
-        if c.get("type") == "scale":
-            steps = c.get("scale") or []
+            out.append(_issue(f"{label}: вес должен быть числом.", i, cid, "weight"))
+        if not str(c.get("description") or "").strip():
+            out.append(_issue(f"{label}: не задано правило оценки.", i, cid, "description"))
+        if c.get("na_allowed") and ctype != "flag" and not str(c.get("na_condition") or "").strip():
+            out.append(_issue(f"{label}: разрешён Н/П, но не указано, когда он ставится.", i, cid, "na_condition"))
+        sec = c.get("section")
+        if sec and section_ids and str(sec) not in section_ids:
+            out.append(_issue(f"{label}: секция {sec!r} не найдена.", i, cid, "section"))
+        if ctype == "scale":
+            steps = c.get("scale")
             if not isinstance(steps, list):
-                errs.append(f"{label}: шкала должна быть массивом ступеней.")
+                out.append(_issue(f"{label}: шкала должна быть массивом ступеней.", i, cid, "scale"))
                 continue
-            nums: list[float] = []
-            for st in steps:
+            if len(steps) < 2:
+                out.append(_issue(f"{label}: у шкалы должно быть минимум 2 ступени.", i, cid, "scale"))
+            nums: list[tuple[int, float]] = []
+            for k, st in enumerate(steps):
+                raw = st.get("value") if isinstance(st, dict) else None
                 try:
-                    v = float(st.get("value"))
-                except (TypeError, ValueError, AttributeError):
-                    errs.append(f"{label}: значение ступени шкалы должно быть числом.")
-                    nums = []
-                    break
+                    v = float(raw)
+                except (TypeError, ValueError):
+                    out.append(_issue(f"{label}: ступень {k + 1}: укажите число баллов.", i, cid, "scale", k))
+                    continue
                 if not math.isfinite(v) or not v.is_integer():
-                    errs.append(f"{label}: значение ступени шкалы должно быть целым числом (получено {st.get('value')}).")
-                    nums = []
-                    break
-                if v < 0:
-                    errs.append(f"{label}: значение ступени шкалы не может быть отрицательным.")
-                    nums = []
-                    break
-                nums.append(v)
-            if nums:
-                if len(set(nums)) != len(nums):
-                    errs.append(f"{label}: значения ступеней шкалы повторяются.")
-                elif max(nums) <= 0:
-                    errs.append(f"{label}: верхняя ступень шкалы должна быть больше 0.")
-    if errs:
-        return errs
+                    out.append(_issue(f"{label}: ступень {k + 1}: баллы должны быть целым числом.", i, cid, "scale", k))
+                elif v < 0:
+                    out.append(_issue(f"{label}: ступень {k + 1}: баллы не могут быть отрицательными.", i, cid, "scale", k))
+                else:
+                    nums.append((k, v))
+            seen_v: dict[float, int] = {}
+            for k, v in nums:
+                if v in seen_v:
+                    out.append(_issue(f"{label}: ступень {k + 1}: значение {int(v)} уже есть у ступени {seen_v[v] + 1}.",
+                                      i, cid, "scale", k))
+                else:
+                    seen_v[v] = k
+            if nums and len(nums) == len(steps) and max(v for _, v in nums) <= 0:
+                out.append(_issue(f"{label}: верхняя ступень шкалы должна быть больше 0.", i, cid, "scale"))
+    if not positive and not any(x["field"] == "weight" for x in out):
+        out.append(_issue("Нужен хотя бы один критерий с весом больше 0.", field="weight"))
+    if out:
+        return out
     try:
-        return scoring.validate_checklist(cfg)
+        return [_issue(m) for m in scoring.validate_checklist(cfg)]
     except Exception as e:  # noqa: BLE001
-        return [f"Некорректная структура чек-листа: {e}"]
+        return [_issue(f"Некорректная структура чек-листа: {e}")]
+
+
+def checklist_errors(cfg: Any) -> list[str]:
+    return [x["message"] for x in checklist_issues(cfg)]
 
 
 def normalize_checklist(cfg: dict[str, Any]) -> dict[str, Any]:
@@ -911,6 +1142,8 @@ def normalize_checklist(cfg: dict[str, Any]) -> dict[str, Any]:
     cfg.setdefault("sections", [])
     for c in cfg["criteria"]:
         c["id"] = str(c["id"]).strip()
+        if c.get("code") is not None:
+            c["code"] = str(c["code"]).strip()
         c["weight"] = float(c.get("weight", 0) or 0)
         if c["weight"].is_integer():
             c["weight"] = int(c["weight"])
@@ -919,6 +1152,10 @@ def normalize_checklist(cfg: dict[str, Any]) -> dict[str, Any]:
             c["scale"] = [
                 {"value": int(float(s["value"])), "label": str(s.get("label", ""))} for s in c.get("scale") or []
             ]
+    # Criteria of one section stay together, in section order (stable inside a section), so a
+    # criterion added at the end of the list does not split its section in two.
+    order = {sct.get("id"): n for n, sct in enumerate(cfg["sections"]) if isinstance(sct, dict)}
+    cfg["criteria"] = sorted(cfg["criteria"], key=lambda c: order.get(c.get("section"), len(order)))
     return cfg
 
 
@@ -955,7 +1192,8 @@ def checklists_default():
 @app.post("/api/checklists/validate")
 def checklists_validate(body: Any = Body(default=None)):
     cfg = body_dict(body).get("config")
-    errors = checklist_errors(cfg)
+    issues = checklist_issues(cfg)
+    errors = [x["message"] for x in issues]
     tw = None
     if isinstance(cfg, dict) and isinstance(cfg.get("criteria"), list):
         try:
@@ -964,16 +1202,16 @@ def checklists_validate(body: Any = Body(default=None)):
             tw = None
     if tw is not None and not math.isfinite(tw):
         tw = None
-    return {"errors": errors, "total_weight": tw}
+    return {"errors": errors, "issues": issues, "total_weight": tw}
 
 
 @app.post("/api/checklists")
 def checklists_create(body: Any = Body(default=None)):
     b = body_dict(body)
     cfg = b.get("config")
-    errors = checklist_errors(cfg)
-    if errors:
-        raise err(422, {"errors": errors})
+    issues = checklist_issues(cfg)
+    if issues:
+        raise err(422, {"errors": [x["message"] for x in issues], "issues": issues})
     cfg = normalize_checklist(cfg)
     version = (db.one("SELECT MAX(version) AS v FROM checklists")["v"] or 0) + 1
     activate = b.get("activate", True) is not False
@@ -991,6 +1229,24 @@ def checklists_create(body: Any = Body(default=None)):
     if activate:
         db.execute("UPDATE checklists SET is_active = CASE WHEN id = ? THEN 1 ELSE 0 END", [new_id])
     return checklist_out(checklist_row(new_id))
+
+
+@app.post("/api/checklists/simulate")
+def checklists_simulate(body: Any = Body(default=None)):
+    """Impact of an edited checklist on stored evaluations, without a model: final values of
+    each dialog's latest finished evaluation are re-scored with the new weights and scales."""
+    b = body_dict(body)
+    cfg = b.get("config")
+    issues = checklist_issues(cfg)
+    group_id = str(b.get("group_id") or "").strip() or None
+    if issues:
+        return {"errors": [x["message"] for x in issues], "issues": issues, "group_id": group_id,
+                "dialogs": 0, "before": None, "after": None, "changed_count": 0, "changed": [],
+                "new_criteria": [], "removed_criteria": []}
+    cfg = normalize_checklist(cfg)
+    out = analytics.simulate(cfg, latest_done_by_dialog(group_id, full=True),
+                             lambda cl_id: (checklist_cached(cl_id) or {}).get("config"))
+    return {"errors": [], "issues": [], "group_id": group_id, **out}
 
 
 @app.get("/api/checklists/{cl_id}")
@@ -1035,7 +1291,7 @@ def budget_guard(n_runs: int, settings: dict[str, Any]) -> None:
     estimate = n_runs * 0.08
     if spent + estimate > cap:
         raise err(429, f"Дневной лимит расходов на оценку исчерпан: потрачено ${spent:.2f} из ${cap:.2f}. "
-                       "Обратитесь к администратору.")
+                       "Лимит задан на сервере в CQA_DAILY_BUDGET_USD.")
 
 
 @app.post("/api/evaluations")
@@ -1061,11 +1317,91 @@ async def evaluations_create(body: Any = Body(default=None)):
     else:
         cl = active_checklist()
     settings = {**get_settings(), **sanitize_settings(b.get("settings"))}
-    budget_guard(len(ids) * int(settings.get("votes", 1) or 1), settings)
+    skipped: list[str] = []
+    # a dialog that is already queued or running is never started twice (each run costs money)
+    active = {
+        r["dialog_id"]
+        for r in db.query(
+            f"SELECT DISTINCT dialog_id FROM evaluations WHERE status IN ('queued', 'running') "
+            f"AND dialog_id IN ({','.join('?' * len(ids))})",
+            ids,
+        )
+    }
+    if active:
+        skipped = [x for x in ids if x in active]
+        ids = [x for x in ids if x not in active]
+        if not ids and not b.get("only_missing"):
+            raise err(409, "Диалог уже оценивается, дождитесь результата." if len(skipped) == 1
+                      else "Эти диалоги уже оцениваются, дождитесь результата.")
+    if b.get("only_missing"):
+        # skip dialogs that already have a finished (or running) evaluation by this checklist version
+        busy = {
+            r["dialog_id"]
+            for r in db.query(
+                f"SELECT DISTINCT dialog_id FROM evaluations WHERE checklist_id = ? AND status IN ('done', 'queued', 'running') "
+                f"AND dialog_id IN ({','.join('?' * len(ids))})",
+                [cl["id"], *ids],
+            )
+        }
+        skipped += [x for x in ids if x in busy]
+        ids = [x for x in ids if x not in busy]
+    if ids:
+        budget_guard(len(ids) * int(settings.get("votes", 1) or 1), settings)
     eval_ids = [create_evaluation(d, cl["id"], settings) for d in ids]
     for eid in eval_ids:
         runner.submit(eid)
-    return {"evaluation_ids": eval_ids}
+    return {"evaluation_ids": eval_ids, "skipped": skipped}
+
+
+DEFAULT_FIRST_RUN_USD = 0.08  # one run without a warm prompt cache (README)
+DEFAULT_EXTRA_RUN_USD = 0.016  # each further run reads the cached prompt
+
+
+def cost_basis(model: str | None) -> dict[str, Any]:
+    """Average cost of the first and of each further run, from finished evaluations of this model."""
+    first: list[float] = []
+    extra: list[float] = []
+    totals: dict[int, list[float]] = {}
+    for e in db.query("SELECT result, cost_usd FROM evaluations WHERE status = 'done' ORDER BY id DESC LIMIT 400"):
+        runs = [r for r in ((e.get("result") or {}).get("runs") or []) if isinstance(r, dict) and not r.get("error")]
+        runs = [r for r in runs if r.get("cost_usd") is not None and (not model or r.get("model") == model)]
+        if not runs:
+            continue
+        first.append(float(runs[0]["cost_usd"]))
+        extra += [float(r["cost_usd"]) for r in runs[1:]]
+        if e.get("cost_usd") is not None:
+            totals.setdefault(len(runs), []).append(float(e["cost_usd"]))
+    return {
+        "evaluations": len(first),
+        "first_run_usd": round(sum(first) / len(first), 4) if first else DEFAULT_FIRST_RUN_USD,
+        "extra_run_usd": round(sum(extra) / len(extra), 4) if extra else DEFAULT_EXTRA_RUN_USD,
+        "by_runs": {str(k): round(sum(v) / len(v), 4) for k, v in sorted(totals.items())},
+        "source": "history" if first else "default",
+    }
+
+
+@app.get("/api/evaluations/estimate")
+def evaluations_estimate(dialogs: int = 1, votes: int | None = None, model: str | None = None,
+                         provider: str | None = None):
+    """Expected cost of evaluating `dialogs` dialogs with the current settings (or `votes` runs,
+    `model`, `provider` not saved yet), from what finished evaluations really cost (prompt caching included)."""
+    st = dict(get_settings())
+    if model:
+        st["model"] = model
+    if provider in ("anthropic", "openai_compat"):
+        st["provider"] = provider
+    v = int(votes if votes is not None else (st.get("votes") or 1))
+    if not 1 <= v <= 9:
+        raise err(400, "votes должен быть от 1 до 9.")
+    n = max(0, int(dialogs))
+    if st.get("provider") == "openai_compat":
+        return {"dialogs": n, "votes": v, "model": st.get("local_model"), "provider": "openai_compat",
+                "per_dialog_usd": 0.0, "total_usd": 0.0, "basis": {"source": "local", "evaluations": 0}}
+    basis = cost_basis(st.get("model"))
+    seen = basis["by_runs"].get(str(v))
+    per = seen if seen is not None else basis["first_run_usd"] + (v - 1) * basis["extra_run_usd"]
+    return {"dialogs": n, "votes": v, "model": st.get("model"), "provider": st.get("provider"),
+            "per_dialog_usd": round(per, 4), "total_usd": round(per * n, 2), "basis": basis}
 
 
 @app.get("/api/evaluations")
@@ -1091,12 +1427,17 @@ def evaluations_list(ids: str | None = None, status: str | None = None, dialog_i
     sql += " ORDER BY id DESC"
     if not ids:
         sql += " LIMIT 500"
-    return {"items": summaries(db.query(sql, params))}
+    rows = db.query(sql, params)
+    scope = scoped_dialog_ids()
+    if scope is not None:
+        rows = [e for e in rows if e["dialog_id"] in scope]
+    return {"items": summaries(rows)}
 
 
 @app.get("/api/evaluations/{eval_id}")
 def evaluations_get(eval_id: int):
     e = evaluation_row(eval_id)
+    guard_eval(e)
     cl = checklist_cached(e["checklist_id"]) or {}
     out = eval_summary(e)
     appeals = db.query("SELECT * FROM appeals WHERE evaluation_id = ? ORDER BY id", [eval_id])
@@ -1118,13 +1459,35 @@ def evaluations_get(eval_id: int):
     return out
 
 
+def guard_eval(e: dict[str, Any]) -> None:
+    if operator_scope():
+        guard_dialog(dialog_row(e["dialog_id"]))
+
+
 @app.post("/api/evaluations/{eval_id}/rerun")
 async def evaluations_rerun(eval_id: int):
     e = evaluation_row(eval_id)
     dialog_row(e["dialog_id"])
+    if db.one("SELECT id FROM evaluations WHERE dialog_id = ? AND status IN ('queued', 'running')", [e["dialog_id"]]):
+        raise err(409, "Диалог уже оценивается, дождитесь результата.")
     new_id = create_evaluation(e["dialog_id"], e["checklist_id"], e.get("settings") or get_settings())
     runner.submit(new_id)
     return {"evaluation_id": new_id}
+
+
+@app.get("/api/evaluations/{eval_id}/coaching")
+def evaluations_coaching(eval_id: int):
+    """Coaching sheet for the operator: failed criteria with the operator's own words."""
+    e = evaluation_row(eval_id)
+    guard_eval(e)
+    if e["status"] != "done":
+        raise err(409, "Разбор доступен только для завершённой оценки.")
+    d = dialog_row(e["dialog_id"])
+    cl = checklist_cached(e["checklist_id"]) or {"config": {}, "version": None}
+    turns = [t.to_dict() for t in prepare(dialog_record(d)).turns]
+    appeals = db.query("SELECT id, criterion_id, status, decision FROM appeals WHERE evaluation_id = ?", [eval_id])
+    dialog = {"id": d["id"], "channel": d.get("channel"), "language": d.get("language"), **operators.info(d)}
+    return coaching.build(dialog, turns, e, cl["config"], cl.get("version"), appeals, db.now())
 
 
 # --- appeals ---
@@ -1151,6 +1514,7 @@ def criterion_original(e: dict[str, Any], cid: str) -> dict[str, Any]:
 def appeals_create(eval_id: int, body: Any = Body(default=None)):
     b = body_dict(body)
     e = evaluation_row(eval_id)
+    guard_eval(e)
     if e["status"] != "done":
         raise err(409, "Апелляцию можно подать только на завершённую оценку.")
     cid = str(b.get("criterion_id") or "").strip()
@@ -1179,14 +1543,22 @@ def appeals_create(eval_id: int, body: Any = Body(default=None)):
 
 
 @app.get("/api/appeals")
-def appeals_list(status: str = Query(default="all")):
-    sql, params = "SELECT * FROM appeals", []
+def appeals_list(status: str = Query(default="all"), mine: int = 0, dialog_id: str | None = None,
+                 sort: str = Query(default="newest")):
+    """`mine=1`: appeals filed by the signed-in user; `sort=oldest`: waiting longest first."""
+    sql, params = "SELECT * FROM appeals WHERE 1=1", []
     if status in ("open", "decided"):
-        sql += " WHERE status = ?"
+        sql += " AND status = ?"
         params.append(status)
     elif status != "all":
         raise err(400, "status: допустимо open, decided или all.")
-    rows = db.query(sql + " ORDER BY id DESC", params)
+    if sort not in ("newest", "oldest"):
+        raise err(400, "sort: допустимо newest или oldest.")
+    if mine:
+        u = auth.current_user.get()
+        sql += " AND author = ?"
+        params.append(u["display_name"] if u else "")
+    rows = db.query(sql + (" ORDER BY id" if sort == "oldest" else " ORDER BY id DESC"), params)
     evals = {
         e["id"]: e
         for e in db.query(
@@ -1194,10 +1566,16 @@ def appeals_list(status: str = Query(default="all")):
             "LEFT JOIN dialogs d ON d.id = e.dialog_id"
         )
     }
+    latest = latest_done_ids()
+    scope = scoped_dialog_ids()
     items = []
     for a in rows:
         e = evals.get(a["evaluation_id"], {})
-        item = appeal_out(a, e)
+        if dialog_id and e.get("dialog_id") != dialog_id:
+            continue
+        if scope is not None and e.get("dialog_id") not in scope:
+            continue
+        item = appeal_out(a, e, latest)
         item["dialog_channel"] = e.get("channel")
         item["dialog_language"] = e.get("language")
         items.append(item)
@@ -1230,6 +1608,8 @@ def appeals_get(appeal_id: int):
     e = evaluation_row(a["evaluation_id"])
     cl = checklist_cached(e["checklist_id"]) or {"config": {}}
     d = db.one("SELECT * FROM dialogs WHERE id = ?", [e["dialog_id"]])
+    if d:
+        guard_dialog(d)
     turns = [t.to_dict() for t in prepare(dialog_record(d)).turns] if d else []
     return {
         "appeal": appeal_out(a, e),
@@ -1274,9 +1654,33 @@ async def appeals_ai_review(appeal_id: int):
         "recommendation": plain(str(data.get("recommendation") or "").strip()),
         "model": rr.model,
         "cost_usd": rr.cost_usd,
+        "requested_at": db.now(),
+        "requested_by": _who(None),
     }
     db.execute("UPDATE appeals SET ai_opinion = ? WHERE id = ? AND status = 'open'", [opinion, appeal_id])
     return {"appeal": appeal_out(appeal_row(appeal_id), e)}
+
+
+@app.post("/api/appeals/{appeal_id}/preview")
+def appeals_preview(appeal_id: int, body: Any = Body(default=None)):
+    """The dialog total if the appeal were decided with `value`: nothing is written, no model call."""
+    b = body_dict(body)
+    a = appeal_row(appeal_id)
+    e = evaluation_row(a["evaluation_id"])
+    cl = checklist_cached(e["checklist_id"])
+    crit = find_criterion(cl["config"], a["criterion_id"]) if cl else None
+    if not crit:
+        raise err(404, "Критерий апелляции не найден в чек-листе.")
+    raw = b.get("value")
+    value = str(raw).strip().upper() if raw is not None else ""
+    if value not in scoring.allowed_values(crit):
+        raise err(400, f"Недопустимое значение для критерия: {raw!r}.")
+    decided = db.query(
+        "SELECT * FROM appeals WHERE evaluation_id = ? AND status = 'decided' ORDER BY decided_at, id", [e["id"]])
+    decided.append({"id": a["id"], "criterion_id": a["criterion_id"], "decision": "changed", "decision_value": value})
+    sc = evaluator.final_from_overrides(cl["config"], e.get("result") or {}, decided)["score"]
+    return {"total_before": e.get("final_total"), "total_after": sc["total"],
+            "gross_before": bool(e.get("gross")), "gross_after": bool(sc["gross_error"])}
 
 
 @app.post("/api/appeals/{appeal_id}/decide")
@@ -1347,6 +1751,7 @@ def _appeals_decide_locked(appeal_id: int, b: dict[str, Any]) -> dict[str, Any]:
 @app.get("/api/audio/{dialog_id}")
 async def audio_redirect(dialog_id: str):
     d = dialog_row(dialog_id)
+    guard_dialog(d)
     if not d.get("audio_url"):
         raise err(404, "У диалога нет записи звонка.")
     try:
@@ -1359,6 +1764,7 @@ async def audio_redirect(dialog_id: str):
 @app.get("/api/audio/{dialog_id}/info")
 async def audio_info(dialog_id: str):
     d = dialog_row(dialog_id)
+    guard_dialog(d)
     if not d.get("audio_url"):
         raise err(404, "У диалога нет записи звонка.")
     try:
@@ -1468,6 +1874,181 @@ def calibration_get(group_id: str | None = None):
         values = {cid: v.get("value") for cid, v in ((e.get("result") or {}).get("criteria") or {}).items()}
         items.append({"dialog_id": d["id"], "checklist": cl["config"], "values": values, "pred_total": e.get("total")})
     return calibration.compare(items, reference)
+
+
+# --- overview, operators ---
+
+def analytics_rows(group_id: str | None, language: str | None, channel: str | None):
+    """Active checklist, [(dialog, evaluation)] and heatmap rows for the filter."""
+    active = active_checklist()
+    pairs = latest_done_by_dialog(group_id, language, channel, full=True)
+    ids = [e["id"] for _, e in pairs]
+    by_eval: dict[int, list[dict[str, Any]]] = {}
+    if ids:
+        for a in db.query(
+            f"SELECT id, evaluation_id, criterion_id, status, decision FROM appeals WHERE evaluation_id IN ({','.join('?' * len(ids))})",
+            ids,
+        ):
+            by_eval.setdefault(a["evaluation_id"], []).append(a)
+    rows = []
+    for d, e in pairs:
+        cl = checklist_cached(e["checklist_id"]) or {"config": {}, "version": None}
+        rows.append(analytics.dialog_row(d, e, active["config"], cl["config"], cl.get("version"), by_eval.get(e["id"], [])))
+    return active, pairs, rows
+
+
+def _distinct(col: str) -> list[str]:
+    return [r[col] for r in db.query(f"SELECT DISTINCT {col} FROM dialogs WHERE {col} IS NOT NULL AND {col} != '' ORDER BY {col}")]
+
+
+def _worst_first(r: dict[str, Any]) -> tuple:
+    ft = r["final_total"]
+    return (ft is None, ft if ft is not None else 0, r["dialog_id"])
+
+
+def _recent_gross(pairs, rows, cfg) -> list[dict[str, Any]]:
+    evals = {e["id"]: (d, e) for d, e in pairs}
+    items = []
+    for r in rows:
+        if r["gross"]:
+            d, e = evals[r["evaluation_id"]]
+            items += analytics.gross_item(r, e, d.get("transcript") or [], cfg)
+    items.sort(key=lambda x: (x["finished_at"] or "", x["dialog_id"]), reverse=True)
+    return items
+
+
+@app.get("/api/overview")
+def overview(group_id: str | None = None, language: str | None = None, channel: str | None = None):
+    """Team picture from the latest finished evaluation of each dialog (final values after
+    appeals): KPI line, heatmap dialogs x criteria, weak criteria, operators, latest gross errors."""
+    active, pairs, rows = analytics_rows(group_id, language, channel)
+    cfg = active["config"]
+    dsql, params = dialog_filter_sql(group_id, language, channel)
+    dialog_ids = [d["id"] for d in db.query(dsql, params)]
+    open_appeals = 0
+    if dialog_ids:
+        open_appeals = db.one(
+            f"SELECT COUNT(*) AS n FROM appeals a JOIN evaluations e ON e.id = a.evaluation_id "
+            f"WHERE a.status = 'open' AND e.dialog_id IN ({','.join('?' * len(dialog_ids))})",
+            dialog_ids,
+        )["n"]
+    finals = [r["final_total"] for r in rows if r["final_total"] is not None]
+    ranked, unnamed = analytics.leaderboard(rows, cfg)
+    gross = _recent_gross(pairs, rows, cfg)
+    # Rows keep the points of the version they were evaluated with; say so when the active
+    # version differs (new criterion: empty column; changed weight: shown next to the active one).
+    by_version: dict[int, dict[str, Any]] = {}
+    scored_weights: dict[str, set] = {c["id"]: set() for c in cfg.get("criteria") or []}
+    for _d, e in pairs:
+        cl = checklist_cached(e["checklist_id"]) or {"config": {}, "version": None, "id": e["checklist_id"]}
+        slot = by_version.setdefault(e["checklist_id"], {"checklist_id": e["checklist_id"], "version": cl.get("version"), "dialogs": 0})
+        slot["dialogs"] += 1
+        own = {c["id"]: c for c in (cl.get("config") or {}).get("criteria") or []}
+        for cid in scored_weights:
+            if cid in own and own[cid].get("type") != "flag":
+                scored_weights[cid].add(own[cid].get("weight"))
+    columns = analytics.columns(cfg)
+    for col in columns:
+        col["evaluated"] = sum(1 for r in rows if (r["cells"].get(col["id"]) or {}).get("v") is not None)
+        sw = sorted(w for w in scored_weights.get(col["id"], set()) if w is not None)
+        col["scored_weights"] = sw
+        col["weight_changed"] = col["type"] != "flag" and bool(sw) and sw != [col["weight"]]
+    versions = sorted(by_version.values(), key=lambda v: -(v["dialogs"]))
+    return {
+        "filters": {"group_id": group_id or None, "language": language or None, "channel": channel or None},
+        "options": {"groups": _distinct("group_id"), "languages": _distinct("language"), "channels": _distinct("channel")},
+        "checklist": {"id": active["id"], "version": active["version"], "name": active["name"],
+                      "evaluated_versions": versions,
+                      "mixed": any(v["checklist_id"] != active["id"] for v in versions)},
+        "kpi": {
+            "dialogs": len(dialog_ids),
+            "evaluated": len(rows),
+            "not_evaluated": len(dialog_ids) - len(rows),
+            "avg_final": analytics.mean(finals),
+            "gross_dialogs": sum(1 for r in rows if r["gross"]),
+            "open_appeals": open_appeals,
+            "split_dialogs": sum(1 for r in rows if r["min_agreement"] is not None and r["min_agreement"] < 1),
+            "share_85_plus": round(sum(1 for x in finals if x >= 85) / len(finals), 4) if finals else None,
+        },
+        "columns": columns,
+        "rows": sorted(rows, key=_worst_first),
+        "weak_spots": analytics.weak_spots(rows, cfg),
+        "operators": ranked,
+        "unnamed": unnamed,
+        "recent_gross": gross[:5],
+        "gross_total": len(gross),
+    }
+
+
+@app.get("/api/operators")
+def operators_list(group_id: str | None = None, language: str | None = None, channel: str | None = None):
+    active, _pairs, rows = analytics_rows(group_id, language, channel)
+    ranked, unnamed = analytics.leaderboard(rows, active["config"])
+    return {"items": ranked, "unnamed": unnamed}
+
+
+@app.get("/api/operators/{key}")
+def operator_profile(key: str, group_id: str | None = None, language: str | None = None, channel: str | None = None):
+    """One operator against the team (same filter). `_unknown` is the bucket without a name."""
+    active, pairs, rows = analytics_rows(group_id, language, channel)
+    cfg = active["config"]
+    key = key.strip().casefold().replace("ё", "е")
+    mine = [r for r in rows if r["operator_key"] == key]
+    if not mine:
+        raise err(404, "Оператор не найден.")
+    ranked, _unnamed = analytics.leaderboard(rows, cfg)
+    me = next((o for o in ranked if o["key"] == key), None)
+    criteria = []
+    for c in cfg.get("criteria") or []:
+        own = analytics.crit_rate(mine, c["id"])
+        team = analytics.crit_rate(rows, c["id"])
+        delta = None
+        if own["rate"] is not None and team["rate"] is not None:
+            delta = round(own["rate"] - team["rate"], 4)
+        criteria.append({
+            "criterion_id": c["id"], "code": c.get("code") or c["id"], "name": c.get("name") or c["id"],
+            "type": c.get("type"), "weight": c.get("weight"),
+            **own, "team_rate": team["rate"], "delta": delta,
+            "failed_dialogs": [r["dialog_id"] for r in mine if r["cells"][c["id"]]["status"] in ("fail", "partial")],
+        })
+    finals = [r["final_total"] for r in mine]
+    team_finals = [r["final_total"] for r in rows]
+    gross = [g for g in _recent_gross(pairs, rows, cfg) if g["operator_key"] == key]
+    return {
+        "key": key,
+        "name": mine[0]["operator"],
+        "languages": sorted({r["language"] for r in mine if r.get("language")}),
+        "summary": {
+            "dialogs": len(mine),
+            "avg_final": analytics.mean(finals),
+            "team_avg_final": analytics.mean(team_finals),
+            "gross": sum(1 for r in mine if r["gross"]),
+            "open_appeals": sum(r["open_appeals"] for r in mine),
+            "rank": me["rank"] if me else None,
+            "of": me["of"] if me else None,
+            "low_data": len(mine) < analytics.LOW_DATA,
+        },
+        "criteria": criteria,
+        "dialogs": [
+            {
+                "dialog_id": r["dialog_id"], "evaluation_id": r["evaluation_id"], "language": r["language"],
+                "channel": r["channel"], "total": r["total"], "final_total": r["final_total"], "gross": r["gross"],
+                "open_appeals": r["open_appeals"], "min_agreement": r["min_agreement"], "finished_at": r["finished_at"],
+                "weakest_cid": r["weakest_cid"],
+                "failed": [cid for cid, ce in r["cells"].items() if ce["status"] in ("fail", "partial")],
+            }
+            for r in sorted(mine, key=_worst_first)
+        ],
+        "gross_items": gross,
+    }
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    path = config.FRONTEND_DIR / "assets" / "freedom-mark.svg"
+    if not path.exists():
+        return Response(status_code=204)
+    return FileResponse(path, media_type="image/svg+xml", headers={"Cache-Control": "max-age=86400"})
 
 
 # --- static frontend (mounted last so /api/* wins) ---

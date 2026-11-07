@@ -1,6 +1,20 @@
 // Единый набор иконок: сетка 16x16, линия 1.5, скругленные концы. Только там, где помогает сканированию.
 
 const P = {
+  overview: 'M2.75 2.75h4.5v4.5h-4.5zM8.75 2.75h4.5v4.5h-4.5zM2.75 8.75h4.5v4.5h-4.5zM8.75 8.75h4.5v4.5h-4.5z',
+  user: 'M8 7.75a2.75 2.75 0 1 0 0-5.5 2.75 2.75 0 0 0 0 5.5zM2.75 13.75c.6-2.5 2.7-4 5.25-4s4.65 1.5 5.25 4',
+  keyboard: 'M2.25 4.25h11.5v7.5H2.25zM4.75 6.75h.01M7 6.75h.01M9 6.75h.01M11.25 6.75h.01M5.25 9.25h5.5',
+  print: 'M4.25 5.75V2.75h7.5v3M4.25 11.25h-1.5v-5.5h10.5v5.5h-1.5M4.25 9.25h7.5v4h-7.5z',
+  link: 'M6.75 9.25l2.5-2.5M7.5 4.75l1-1a2.47 2.47 0 0 1 3.5 3.5l-1 1M8.5 11.25l-1 1a2.47 2.47 0 0 1-3.5-3.5l1-1',
+  panel: 'M2.75 2.75h10.5v10.5H2.75zM6.25 2.75v10.5',
+  swap: 'M4.5 5.25h8M10.25 3l2.25 2.25-2.25 2.25M11.5 10.75h-8M5.75 8.5L3.5 10.75 5.75 13',
+  more: 'M3.75 8h.01M8 8h.01M12.25 8h.01',
+  filter: 'M2.5 3.25h11l-4.25 5v4.25l-2.5 1.5V8.25z',
+  select: 'M2.75 2.75h10.5v10.5H2.75zM5.25 8l2 2 3.5-4',
+  sheet: 'M4 2.75h5.5l2.5 2.5v8H4zM9.25 2.75v2.75h2.75M6 8.25h4M6 10.75h4',
+  flag: 'M3.75 14V2.75M3.75 3.25h8.5L10.5 6.5l1.75 3.25h-8.5',
+  undo: 'M5.5 3.75L2.75 6.5 5.5 9.25M3 6.5h6.25a3.5 3.5 0 0 1 0 7H7',
+  spark: 'M8 2.25v3M8 10.75v3M2.25 8h3M10.75 8h3M4 4l1.75 1.75M10.25 10.25L12 12M12 4l-1.75 1.75M5.75 10.25L4 12',
   dialogs: 'M2.75 3.25h10.5v7.5h-6l-3 2.5v-2.5h-1.5z',
   appeals: 'M3.75 14V2.75M3.75 3.25h8.5L10.5 6.5l1.75 3.25h-8.5',
   checklists: 'M7 4h6.5M7 8h6.5M7 12h6.5M2.5 4l1 1 1.75-2M2.5 8l1 1 1.75-2M2.5 12l1 1 1.75-2',
@@ -49,7 +63,7 @@ export function icon(name, size = 16, cls = '') {
   } else {
     path.setAttribute('fill', 'none');
     path.setAttribute('stroke', 'currentColor');
-    path.setAttribute('stroke-width', '1.5');
+    path.setAttribute('stroke-width', name === 'more' ? '2.25' : '1.5');
     path.setAttribute('stroke-linecap', 'round');
     path.setAttribute('stroke-linejoin', 'round');
   }

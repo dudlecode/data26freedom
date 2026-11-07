@@ -1,19 +1,23 @@
 // Карточка диалога: транскрипт слева, оценка справа. Наведение на критерий подсвечивает его
 // реплики-основания в транскрипте и ставит метки на полосе вдоль транскрипта; ссылки T# прокручивают
-// к реплике и перематывают запись звонка. Апелляция подаётся прямо в строке критерия.
+// к реплике и перематывают запись звонка. Сверху «Где потеряны баллы», апелляция подаётся в строке критерия.
 
 import { api, audioUrl } from '../api.js';
 import {
   h, clear, icon, button, fmt, isNum, toast, toastError, dotted, select, field, popover, closePopover, withBusy,
-  valueBadge, valueLabel, normValue, shortValue, scoreTone, linkifyTurns, rangeLabel, bar,
-  emptyState, errorState, skeleton, pageHeader, nTurns, nRuns, estimateCost, costText,
-  isCall, channelLabel, ENDED_BY, iconButton, countUp, replay, keysBlocked, loadNavList, progressLine, reducedMotion, isKey,
+  valueBadge, valueLabel, normValue, shortValue, scoreTone, linkifyTurns, rangeLabel,
+  emptyState, errorState, skeleton, pageHeader, nTurns, nRuns, fetchEstimate, costText,
+  isCall, channelLabel, iconButton, countUp, replay, keysBlocked, cardList, humanError, plural, progressLine, reducedMotion, isKey, stripLead,
+  isTouch, prefs,
 } from '../ui.js';
 import { renderTranscript } from '../transcript.js';
-import { can, gate, hasRole } from '../session.js';
+import { can, hasRole } from '../session.js';
+import { violationType, reasonBody } from '../violations.js';
+import { operatorName, operatorKey, UNKNOWN } from '../operators.js';
 
 /** Оценки, итог которых уже «досчитан» при первом показе: повторные отрисовки без анимации. */
 const shownEvals = new Set();
+const ENDED = { operator_closed: 'закрыл оператор', client_or_connection: 'клиент ушёл' };
 
 /** Для disabled-кнопки подсказку показывает обёртка: у неактивной кнопки нет событий мыши. */
 function wrapTip(btn) {
@@ -31,17 +35,24 @@ export async function mount(root, { params, query, ctx }) {
   let destroyed = false;
   let pollTimer = null;
   let data;
+  const canEval = can('evaluate');
+  const canAppeal = can('appeal');
+  const operator = hasRole('operator');
   try { sessionStorage.setItem('cqa.lastDialog', dialogId); } catch { /* ignore */ }
 
   /* порядок списка, из которого открыт диалог: «предыдущий / следующий» и возврат по Esc */
-  const nav = loadNavList();
+  const nav = cardList(dialogId, ctx.prevPath ? ctx.prevPath() : '');
   const navIdx = nav ? nav.ids.indexOf(dialogId) : -1;
-  const back = navIdx >= 0 && nav.back ? { href: nav.back, label: nav.label || 'Диалоги' } : { href: '#/dialogs', label: 'Диалоги' };
+  const listLabel = operator ? 'Мои диалоги' : 'Диалоги';
+  const back = navIdx >= 0 && nav.back ? { href: nav.back, label: nav.label || listLabel } : { href: '#/dialogs', label: listLabel };
   const neighbour = (d) => (navIdx >= 0 ? nav.ids[navIdx + d] : undefined);
   const goNeighbour = (d, instant) => {
     const id = neighbour(d);
     if (id) ctx.navigate(`#/dialog/${encodeURIComponent(id)}`, { instant });
   };
+
+  /* клавиатура: [ ] соседние диалоги, J/K критерии, A апелляция по критерию, Esc назад */
+  const critRows = () => [...evalScroll.querySelectorAll('.crit > .crit__row')];
   const onKey = (e) => {
     if (keysBlocked(e)) return;
     if (isKey(e, 'prev') || isKey(e, 'next')) {
@@ -50,6 +61,18 @@ export async function mount(root, { params, query, ctx }) {
     } else if (e.key === 'Escape') {
       e.preventDefault();
       ctx.navigate(back.href, { instant: true });
+    } else if (isKey(e, 'down') || isKey(e, 'up')) {
+      const rows = critRows();
+      if (!rows.length) return;
+      e.preventDefault();
+      const i = rows.indexOf(document.activeElement);
+      const next = i < 0 ? (isKey(e, 'down') ? 0 : rows.length - 1) : Math.max(0, Math.min(rows.length - 1, i + (isKey(e, 'down') ? 1 : -1)));
+      rows[next].focus();
+      rows[next].scrollIntoView({ block: 'nearest' });
+    } else if ((e.code === 'KeyA' || e.key === 'a' || e.key === 'ф') && canAppeal) {
+      const row = document.activeElement && document.activeElement.closest && document.activeElement.closest('.crit');
+      const item = row || evalScroll.querySelector('.crit.is-open');
+      if (item && item.openAppeal) { e.preventDefault(); item.openAppeal(); }
     }
   };
   document.addEventListener('keydown', onKey);
@@ -67,29 +90,43 @@ export async function mount(root, { params, query, ctx }) {
   const { dialog, turns = [], facts = {} } = data;
   let evaluations = data.evaluations || [];
   const call = dialog.has_audio || isCall(dialog.channel);
-  const transcript = renderTranscript(turns, { audioSrc: dialog.has_audio ? audioUrl(dialog.id) : null });
+  const opName = (dialog.operator && (typeof dialog.operator === 'string' ? dialog.operator : dialog.operator.name)) || operatorName(turns);
+  const opKey = dialog.operator_key || operatorKey(opName);
+  if (ctx.setOperatorContext) ctx.setOperatorContext(opKey);
+  const transcript = renderTranscript(turns, {
+    audioSrc: dialog.has_audio ? audioUrl(dialog.id) : null,
+    linkFor: (idx) => `${location.origin}${location.pathname}#/dialog/${encodeURIComponent(dialog.id)}?${currentId ? `eval=${currentId}&` : ''}turn=${idx}`,
+  });
 
   /* ---------- шапка ---------- */
   const metaParts = [
+    opName && opName !== UNKNOWN
+      ? (can('analytics') ? h('a', { class: 'op-link', href: `#/operator/${encodeURIComponent(opKey)}`, 'data-tip': 'Профиль оператора' }, opName) : h('span', null, opName))
+      : null,
     channelLabel(dialog.channel),
     dialog.language || null,
     nTurns(turns.length),
   ];
-  if (isNum(facts.duration_s) && call) metaParts.push(`длительность ${fmt.seconds(facts.duration_s)}`);
+  if (isNum(facts.duration_s) && call) metaParts.push(fmt.seconds(facts.duration_s));
   if (isNum(facts.first_response_s)) {
     metaParts.push(h('span', { class: facts.first_response_ok === false ? 't-warn' : null, 'data-tip': 'От перевода на оператора до его первого ответа' },
-      `первая реакция ${fmt.seconds(facts.first_response_s)}`));
+      `ответ ${fmt.seconds(facts.first_response_s)}`));
   }
-  if (facts.ended_by) metaParts.push(`завершение: ${ENDED_BY[facts.ended_by] || facts.ended_by}`);
+  if (facts.ended_by) metaParts.push(ENDED[facts.ended_by] || facts.ended_by);
 
-  const evalSel = h('select', { class: 'input input--sm', 'aria-label': 'Оценка', style: { maxWidth: '300px' } });
+  const evalSel = h('select', { class: 'input input--sm', 'aria-label': 'Оценка', 'data-tip': 'Оценки этого диалога, новые сверху', style: { maxWidth: '240px' } });
   evalSel.addEventListener('change', () => show(Number(evalSel.value)));
   const rerunBtn = button('Переоценить', { kind: 'secondary', size: 'sm', trailing: 'chevronDown' });
   rerunBtn.setAttribute('aria-haspopup', 'dialog');
   rerunBtn.addEventListener('click', () => openRerun(rerunBtn));
   const compareBtn = button('Сравнить', { kind: 'secondary', size: 'sm' });
   compareBtn.addEventListener('click', () => toggleCompare());
-  const compareWrap = h('span', { style: { display: 'inline-flex' } }, compareBtn);
+  const coachBtn = button('Разбор', { kind: 'secondary', size: 'sm', iconName: 'sheet', tip: 'Лист для разговора с оператором: печать или текст' });
+  coachBtn.addEventListener('click', () => { if (current) ctx.navigate(`#/dialog/${encodeURIComponent(dialogId)}/coaching?eval=${current.id}`); });
+  const disputeBtn = button('Оспорить оценку', { kind: 'primary', size: 'sm', trailing: 'chevronDown' });
+  disputeBtn.setAttribute('aria-haspopup', 'menu');
+  disputeBtn.addEventListener('click', () => openDispute(disputeBtn));
+  const actionsBox = h('div', { class: 'ph__actions-inner' });
 
   const runLine = progressLine('Оценка выполняется');
   const prevBtn = iconButton('chevronUp', 'Предыдущий диалог', () => goNeighbour(-1), { disabled: !neighbour(-1), tip: neighbour(-1) ? 'Предыдущий диалог' : 'Это первый диалог списка' });
@@ -103,20 +140,46 @@ export async function mount(root, { params, query, ctx }) {
     : null;
 
   root.append(pageHeader({
-    title: dialog.id,
+    // счётчик «5 из 65» и стрелки рядом с ID: в ряду кнопок на 1280 px он переносился на вторую строку
+    title: [h('span', { class: 'ph__id' }, dialog.id), pager],
     back: { ...back, kbd: 'Esc' },
-    meta: dotted(metaParts),
-    actions: [evalSel, gate(rerunBtn, 'evaluate'), compareWrap, pager ? h('span', { class: 'ph__divider', 'aria-hidden': 'true' }) : null, pager],
+    // разделитель «·» в начале перенесённой строки срезается (metaline), строка не кончается висячей точкой
+    meta: h('div', { class: 'metaline' }, metaParts.filter(Boolean).map((p) => h('span', { class: 'metaline__i' }, p))),
+    actions: [actionsBox],
     progress: runLine.el,
   }));
 
   const evalScroll = h('div', { class: 'pane__scroll' });
-  root.append(h('div', { class: 'split' },
-    h('section', { class: 'pane', 'aria-label': 'Транскрипт' }, transcript.el),
-    h('section', { class: 'pane', 'aria-label': 'Оценка' }, evalScroll)));
+  /* до 960 px (телефон и планшет): транскрипт и оценка на двух вкладках, выбор вкладки запоминается между диалогами */
+  const tabbedMQ = matchMedia('(max-width: 960px)');
+  let mtab = prefs.get('dialog.mtab', 'eval') === 'tx' ? 'tx' : 'eval';
+  const mscore = h('span', { class: 'mtabs__score' });
+  const tabBtn = (id, label) => h('button', {
+    type: 'button', role: 'tab', id: `mtab-${id}`, 'aria-controls': `mpane-${id}`, onclick: () => setTab(id, true),
+  }, label);
+  const tabTx = tabBtn('tx', 'Транскрипт');
+  const tabEv = tabBtn('eval', 'Оценка');
+  const mtabs = h('div', { class: 'mtabs' }, h('div', { class: 'seg mtabs__seg', role: 'tablist', 'aria-label': 'Раздел карточки' }, tabTx, tabEv), mscore);
+  const split = h('div', { class: 'split split--dialog' },
+    h('section', { class: 'pane pane--tx', id: 'mpane-tx', 'aria-label': 'Транскрипт' }, transcript.el),
+    h('section', { class: 'pane pane--ev', id: 'mpane-eval', 'aria-label': 'Оценка' }, evalScroll));
+  function setTab(id, remember) {
+    mtab = id;
+    split.dataset.mtab = id;
+    for (const [b, on] of [[tabTx, id === 'tx'], [tabEv, id === 'eval']]) {
+      b.setAttribute('aria-selected', String(on));
+      b.setAttribute('aria-pressed', String(on));
+      b.tabIndex = on ? 0 : -1;
+    }
+    if (remember) prefs.set('dialog.mtab', id);
+  }
+  setTab(mtab);
+  root.append(mtabs, split);
 
   /* ---------- реплики ---------- */
   function goTurn(from, to = from) {
+    // телефон: ссылка T# из оценки открывает вкладку транскрипта и прокручивает к реплике; выбор вкладки по умолчанию не меняется
+    if (tabbedMQ.matches && mtab !== 'tx') { setTab('tx'); void split.offsetHeight; }
     if (!transcript.focusTurns(from, to)) toast(`Реплики T${from + 1} нет в транскрипте`, 'error');
   }
   const preview = (idx) => transcript.turnText(idx);
@@ -132,20 +195,43 @@ export async function mount(root, { params, query, ctx }) {
   let current = null;
   let compareWith = null;
 
-  function renderEvalSelect() {
-    clear(evalSel);
-    evalSel.hidden = !evaluations.length;
-    for (const e of evaluations) {
-      const st = e.status === 'done' ? (isNum(e.final_total) ? fmt.n2(e.final_total) : 'Н/П') : e.status === 'error' ? 'ошибка' : 'в работе';
-      evalSel.append(h('option', { value: e.id, selected: e.id === currentId },
-        `№${e.id} · v${e.checklist_version ?? '?'} · ${fmt.dateShort(e.created_at)} · ${st}`));
+  /* телефон: ряд действий прокручивается вбок; затухание у правого края показывает, что кнопки есть дальше */
+  const actionsRow = actionsBox.parentElement;
+  function syncActionsFade() {
+    if (!actionsRow) return;
+    actionsRow.classList.toggle('has-more', actionsRow.scrollWidth - actionsRow.clientWidth - actionsRow.scrollLeft > 4);
+  }
+  if (actionsRow) actionsRow.addEventListener('scroll', syncActionsFade, { passive: true });
+  const actionsRO = actionsRow && typeof ResizeObserver === 'function' ? new ResizeObserver(syncActionsFade) : null;
+  if (actionsRO) { actionsRO.observe(actionsRow); actionsRO.observe(actionsBox); }
+
+  function renderActions() {
+    clear(actionsBox);
+    const doneEvals = evaluations.filter((e) => e.status === 'done');
+    const isDone = current && current.status === 'done';
+    if (evaluations.length > 1) {
+      clear(evalSel);
+      const manyVersions = new Set(evaluations.map((e) => e.checklist_version)).size > 1;
+      for (const e of evaluations) {
+        const st = e.status === 'done' ? (isNum(e.final_total) ? fmt.n2(e.final_total) : 'Н/П') : e.status === 'error' ? 'ошибка' : 'в работе';
+        evalSel.append(h('option', { value: e.id, selected: e.id === currentId },
+          [`№${e.id}`, fmt.dateShort(e.created_at), manyVersions ? `v${e.checklist_version ?? '?'}` : null, st].filter(Boolean).join(' · ')));
+      }
+      evalSel.value = String(currentId);
+      actionsBox.append(evalSel);
     }
-    const doneCount = evaluations.filter((e) => e.status === 'done').length;
-    const ok = doneCount >= 2 && current && current.status === 'done';
-    compareBtn.disabled = !ok;
-    compareWrap.dataset.tip = ok ? '' : 'Нужны две завершённые оценки';
-    if (ok) compareWrap.removeAttribute('data-tip');
-    compareBtn.setAttribute('aria-pressed', String(!!compareWith));
+    if (operator && isDone && canAppeal) actionsBox.append(disputeBtn);
+    if (isDone) actionsBox.append(coachBtn);
+    if (doneEvals.length >= 2 && isDone) {
+      compareBtn.setAttribute('aria-pressed', String(!!compareWith));
+      actionsBox.append(compareBtn);
+    }
+    if (canEval && evaluations.length) {
+      // пока оценка в очереди или идёт, второй платный прогон не запускаем
+      const busy = evaluations.some((e) => e.status === 'queued' || e.status === 'running');
+      rerunBtn.disabled = busy;
+      actionsBox.append(busy ? h('span', { class: 'gate', 'data-tip': 'Оценка уже выполняется. Переоценить можно после результата.' }, rerunBtn) : rerunBtn);
+    }
   }
 
   async function refreshEvaluations() {
@@ -163,10 +249,11 @@ export async function mount(root, { params, query, ctx }) {
     transcript.setPinned(null);
     transcript.setHover(null);
     if (!keepScroll) clear(evalScroll).append(skeleton(10));
-    if (!evalId) { current = null; runLine.hide(); renderEvalSelect(); renderNoEval(); if (!deepLinked) { deepLinked = true; applyDeepLink(); } return; }
+    if (!keepScroll) clear(mscore);
+    if (!evalId) { current = null; runLine.hide(); renderActions(); renderNoEval(); if (!deepLinked) { deepLinked = true; applyDeepLink(); } return; }
     let ev;
     try {
-      ev = await api.evaluation(evalId);
+      ev = await evaluationWithMark(evalId);
     } catch (e) {
       clear(evalScroll).append(errorState(e, () => show(evalId)));
       return;
@@ -174,7 +261,7 @@ export async function mount(root, { params, query, ctx }) {
     if (destroyed || currentId !== evalId) return;
     current = ev;
     if (compareWith && (ev.status !== 'done' || compareWith === ev.id)) compareWith = null;
-    renderEvalSelect();
+    renderActions();
     clear(evalScroll);
     if (ev.status === 'queued' || ev.status === 'running') { runLine.set(); renderRunning(ev); return; }
     runLine.hide();
@@ -184,11 +271,17 @@ export async function mount(root, { params, query, ctx }) {
     if (!deepLinked) { deepLinked = true; applyDeepLink(); }
   }
 
-  /* ?turn=N (и ?crit=cid): открыть критерий и прокрутить транскрипт к реплике, один раз после загрузки */
+  /* ?turn=N (и ?crit=cid или crit=gross): открыть критерий и прокрутить транскрипт к реплике, один раз */
   let deepLinked = false;
   function applyDeepLink() {
     const turn = query.turn !== undefined ? Number(query.turn) : null;
-    const crit = query.crit || null;
+    let crit = query.crit || null;
+    if (crit === 'gross' && current) {
+      const sc = (current.final && current.final.score) || (current.result && current.result.score) || {};
+      crit = (sc.gross_criteria || [])[0] || ((current.checklist && current.checklist.config && current.checklist.config.criteria) || []).find((c) => c.type === 'flag')?.id || null;
+    }
+    // ссылка на критерий без реплики открывает вкладку «Оценка», даже если запомнен «Транскрипт»
+    if (crit && turn === null && tabbedMQ.matches) setTab('eval');
     if (crit) openCrit(crit, { focusTranscript: turn === null });
     if (turn !== null && Number.isFinite(turn)) {
       setTimeout(() => { if (!destroyed) goTurn(turn); }, 0);
@@ -206,7 +299,11 @@ export async function mount(root, { params, query, ctx }) {
     clear(evalScroll);
     const b = button('Оценить', { kind: 'primary' });
     b.addEventListener('click', () => openRerun(b));
-    evalScroll.append(emptyState({ title: 'Диалог не оценён', text: 'Оценка займёт около минуты.', actions: [gate(b, 'evaluate')] }));
+    evalScroll.append(emptyState({
+      title: 'Диалог не оценён',
+      text: canEval ? 'Оценка займёт около минуты.' : 'Оценку запускает супервайзер.',
+      actions: canEval ? [b] : null,
+    }));
   }
 
   function renderRunning(ev) {
@@ -241,8 +338,12 @@ export async function mount(root, { params, query, ctx }) {
     evalScroll.append(h('div', { class: 'alert alert--danger', role: 'alert' }, icon('alert', 16),
       h('div', { class: 'fstack', style: { gap: '8px' } },
         h('div', { class: 'alert__title' }, 'Оценка завершилась ошибкой'),
-        h('div', { class: 'pre-wrap' }, ev.error || 'Причина не указана'),
-        h('div', null, gate(b, 'evaluate')))));
+        (() => {
+          const he = humanError(ev.error);
+          return [h('div', { class: 'pre-wrap' }, he.summary),
+            he.detail ? h('details', { class: 'err-detail' }, h('summary', null, 'Ответ API'), h('code', null, he.detail)) : null];
+        })(),
+        canEval ? h('div', null, b) : null)));
   }
 
   /* ---------- результат ---------- */
@@ -260,43 +361,75 @@ export async function mount(root, { params, query, ctx }) {
     const changed = isNum(origTotal) && isNum(finalTotal) && Math.abs(origTotal - finalTotal) > 0.004;
     const crits = config.criteria || [];
     const critById = Object.fromEntries(crits.map((c) => [c.id, c]));
+    const gross = score.gross_criteria || [];
+    const isGross = !!(score.gross_error || gross.length);
 
     if (compareWith) evalScroll.append(compareSection(ev));
 
-    /* итог и секции: при первом показе оценки итог досчитывается от 0, полосы секций растут */
+    /* решения по апелляциям в более ранней оценке: новая оценка их не наследует */
+    if (!(ev.decided_appeals > 0)) {
+      const older = evaluations.find((e) => e.id !== ev.id && e.status === 'done' && (e.decided_appeals || 0) > 0);
+      if (older) {
+        evalScroll.append(h('div', { class: 'alert alert--info', role: 'note' }, icon('appeals', 16),
+          h('div', null,
+            `Решение по апелляции относится к оценке №${older.id}${isNum(older.final_total) ? `, её итог ${fmt.n2(older.final_total)}` : ''}. В эту оценку оно не перенесено. `,
+            h('button', { type: 'button', class: 'link-btn', onclick: () => show(older.id) }, `Открыть оценку №${older.id}`))));
+      }
+    }
+
+    /* итог: при первом показе оценки досчитывается от 0 */
     const first = !shownEvals.has(ev.id);
     shownEvals.add(ev.id);
-    const secRows = (score.sections || []).filter((s) => isNum(s.max_points) && s.max_points > 0);
     const factor = score.redistribution_factor;
     const totalNum = h('span', { class: 'evtotal__val' }, isNum(finalTotal) ? fmt.n2(finalTotal) : 'Н/П');
+    const redistributed = isNum(factor) && factor > 1.0001;
+    const totalTip = [
+      changed ? `Исходная оценка ИИ ${fmt.n2(origTotal)}, после апелляций ${fmt.n2(finalTotal)}` : null,
+      redistributed ? `Вес критериев Н/П перераспределён: сумма применимых весов ${fmt.n2(score.applicable_weight)}, веса умножены на ${fmt.n2(factor)}` : null,
+      isGross ? 'Грубая ошибка отмечена отдельно и итог не обнуляет' : null,
+    ].filter(Boolean).join('\n');
+
+    /* где потеряны баллы: критерии по убыванию потерь, клик раскрывает критерий */
+    const losses = crits.filter((c) => c.type !== 'flag').map((c) => {
+      const sc = (score.criteria || {})[c.id] || {};
+      return { c, lost: isNum(sc.effective_weight) && isNum(sc.points) ? sc.effective_weight - sc.points : 0, sc };
+    }).filter((x) => x.lost > 0.004).sort((a, b) => b.lost - a.lost);
+    const lostBox = h('div', { class: 'lost' },
+      h('div', { class: 'lost__title' }, losses.length ? 'Где потеряны баллы' : 'Все баллы набраны'),
+      losses.length ? h('ol', { class: 'lost__list' }, losses.slice(0, losses.length === 5 ? 5 : 4).map(({ c, lost, sc }) => h('li', null,
+        h('button', { type: 'button', class: 'lost__row', onclick: () => openCrit(c.id), 'data-tip': `${fmt.n2(sc.points)} из ${fmt.n2(sc.effective_weight)}` },
+          h('span', { class: 'lost__code' }, c.code || c.id),
+          h('span', { class: 'lost__name' }, c.name),
+          h('span', { class: 'lost__bar', 'aria-hidden': 'true' }, h('span', { style: { width: `${Math.min(100, (lost / Math.max(...losses.map((x) => x.lost))) * 100)}%` } })),
+          h('span', { class: 'lost__pts' }, `-${fmt.n2(lost)}`))))) : null,
+      losses.length > 5 ? h('div', { class: 'lost__more t-12 t-2' }, `Ещё ${losses.length - 4} ${plural(losses.length - 4, 'критерий', 'критерия', 'критериев')}: ${losses.slice(4).map((x) => `${x.c.code || x.c.id} ${x.c.name}`).join(', ')}`) : null);
+
     evalScroll.append(h('div', { class: 'evhead' },
-      h('div', null,
-        h('div', { class: ['evtotal__num', scoreTone(finalTotal) === 'low' && 'score--low'] },
+      h('div', { class: 'evtotal', 'data-tip': totalTip || null },
+        h('div', { class: ['evtotal__num', !isGross && scoreTone(finalTotal) === 'low' && 'score--low'] },
           totalNum, h('small', null, 'из 100')),
+        isGross ? h('button', { type: 'button', class: 'sig sig--danger evtotal__gross', onclick: () => openCrit(gross[0] || 'gross') }, 'Грубая ошибка') : null,
         changed ? h('div', { class: 'evtotal__orig' }, `Исходно ${fmt.n2(origTotal)}`) : null,
-        isNum(factor) && factor > 1.0001
-          ? h('div', { class: 'evtotal__note', 'data-tip': `Сумма весов применимых критериев ${fmt.n2(score.applicable_weight)}. Веса умножены на ${fmt.n2(factor)}, чтобы максимум остался 100.` },
-            'Вес критериев Н/П перераспределён')
-          : null),
-      secRows.length ? h('div', { class: 'sec-grid', role: 'list', 'aria-label': 'Баллы по секциям' }, secRows.map((s) => h('div', { class: 'sec-grid__row', role: 'listitem' },
-        h('span', { class: 'sec-grid__name', title: s.name }, s.name),
-        h('span', { class: 'sec-grid__pts' }, fmt.n2(s.points), h('span', null, ` / ${fmt.n2(s.max_points)}`)),
-        bar(s.percent, s.percent >= 85 ? null : s.percent < 60 ? 'low' : 'mid', { grow: first })))) : h('span')));
+        redistributed ? h('div', { class: 'evtotal__note' }, 'с учётом Н/П') : null),
+      lostBox));
     if (first && isNum(finalTotal)) countUp(totalNum, finalTotal, fmt.n2, 400);
+    clear(mscore).append(...[
+      isGross ? h('span', { class: 'sig sig--danger' }, 'Грубая') : null,
+      h('span', { class: ['mtabs__num', !isGross && scoreTone(finalTotal) === 'low' && 'score--low'] }, isNum(finalTotal) ? fmt.n2(finalTotal) : 'Н/П'),
+      h('span', { class: 't-2' }, 'из 100')].filter(Boolean));
 
     /* грубые ошибки */
-    const gross = score.gross_criteria || [];
-    if (score.gross_error || gross.length) {
+    if (isGross) {
       for (const cid of gross.length ? gross : [null]) {
-        const c = cid ? critById[cid] || { name: cid } : { name: 'нарушение без указания критерия' };
         const r = cid ? (result.criteria || {})[cid] || {} : {};
-        evalScroll.append(h('div', { class: 'alert alert--danger', role: 'alert' }, icon('alert', 16),
+        const type = violationType(r.reasoning);
+        evalScroll.append(h('div', { class: 'alert alert--danger', role: 'alert' }, icon('gross', 16),
           h('div', null,
             h('div', null,
-              cid ? h('button', { type: 'button', class: 'link-btn alert__title', style: { color: 'var(--danger)' }, onclick: () => openCrit(cid) },
-                /груб/i.test(c.name || '') ? 'Грубая ошибка' : `Грубая ошибка: ${c.name}`) : h('span', { class: 'alert__title' }, 'Грубая ошибка'),
+              cid ? h('button', { type: 'button', class: 'link-btn alert__title', style: { color: 'var(--danger)' }, onclick: () => openCrit(cid) }, `Грубая ошибка: ${type.label.toLowerCase()}`)
+                : h('span', { class: 'alert__title' }, 'Грубая ошибка'),
               config.gross_error_zeroes_total ? h('span', { class: 't-2' }, '. Итог обнулён') : null),
-            r.reasoning ? h('div', { class: 'reason', style: { marginTop: '2px' } }, linkify(r.reasoning)) : null)));
+            r.reasoning ? h('div', { class: 'reason', style: { marginTop: '2px' } }, linkify(reasonBody(r.reasoning, type))) : null)));
       }
     }
 
@@ -306,9 +439,9 @@ export async function mount(root, { params, query, ctx }) {
       result.client_request ? h('h3', { class: 'evblock__title' }, 'Запрос клиента') : null,
       result.client_request ? h('p', { class: 'reason' }, linkify(result.client_request)) : null,
       h('p', { class: 'evmeta', style: { marginTop: result.client_request ? '8px' : 0 } }, dotted([
-        ev.model || (ev.settings && ev.settings.model),
-        votes ? nRuns(votes) : null,
-        fmt.money(ev.cost_usd),
+        operator ? null : ev.model || (ev.settings && ev.settings.model),
+        operator ? null : votes ? nRuns(votes) : null,
+        operator ? null : fmt.money(ev.cost_usd),
         `чек-лист v${ev.checklist_version ?? '?'}`,
         fmt.date(ev.finished_at || ev.created_at),
       ], 'sep'))));
@@ -327,16 +460,36 @@ export async function mount(root, { params, query, ctx }) {
       evalScroll.append(criterionRow(ev, c, { result, final, score, overrides, appeals }));
     }
 
-    evalScroll.append(techDetails(ev, config));
+    if (!operator) evalScroll.append(techDetails(ev, config));
   }
 
   let openRows = new Map();
   function openCrit(cid, { focusTranscript = true } = {}) {
+    if (cid === 'gross') {
+      const el = evalScroll.querySelector('.crit[data-flag="1"]');
+      if (el) cid = el.dataset.crit; else return;
+    }
     const el = evalScroll.querySelector(`[data-crit="${CSS.escape(cid)}"]`);
     if (!el) return;
     if (!el.classList.contains('is-open') && el.toggleOpen) el.toggleOpen(true, { focusTranscript });
-    el.scrollIntoView({ behavior: reducedMotion() ? 'auto' : 'smooth', block: 'nearest' });
+    else revealCrit(el);
     replay(el, 'flash');
+  }
+
+  /** Раскрытый критерий целиком в зоне видимости: после перехода высоты, иначе тело остаётся за краем. */
+  function revealCrit(el) {
+    const run = () => {
+      if (!el.isConnected) return;
+      const pr = evalScroll.getBoundingClientRect();
+      const r = el.getBoundingClientRect();
+      const top = r.top - pr.top + evalScroll.scrollTop;
+      const sticky = 34;
+      let target = null;
+      if (r.bottom > pr.bottom - 8) target = Math.min(top - sticky, top + r.height - evalScroll.clientHeight + 16);
+      if (r.top < pr.top + sticky) target = top - sticky;
+      if (target !== null) evalScroll.scrollTo({ top: Math.max(0, target), behavior: reducedMotion() ? 'auto' : 'smooth' });
+    };
+    setTimeout(run, reducedMotion() ? 0 : 260);
   }
 
   function criterionRow(ev, c, { result, final, score, overrides, appeals }) {
@@ -353,11 +506,12 @@ export async function mount(root, { params, query, ctx }) {
     const range = Array.isArray(r.checked_range) && r.checked_range.length === 2 ? r.checked_range : null;
     const sel = evTurns.length || range ? { turns: evTurns, range } : null;
 
-    /* согласие прогонов */
+    /* согласие прогонов: показываем только расхождение */
     const votes = Array.isArray(r.votes) ? r.votes : [];
     const agree = votes.filter((v) => normValue(v) === normValue(origVal)).length;
     const dist = {};
-    for (const v of votes) { const k = shortValue(v) || String(v); dist[k] = (dist[k] || 0) + 1; }
+    for (const v of votes) { const k = valueLabel(c, v) || shortValue(v) || String(v); dist[k] = (dist[k] || 0) + 1; }
+    const distText = Object.entries(dist).map(([k, n]) => `${k}: ${n} ${plural(n, 'прогон', 'прогона', 'прогонов')}`).join(', ');
     const split = votes.length > 1 && agree < votes.length;
 
     /* баллы */
@@ -377,15 +531,25 @@ export async function mount(root, { params, query, ctx }) {
       h('span', { class: 'crit__name', title: c.name }, h('span', { class: 'crit__label' }, c.name), mark),
       valueBadge(c, val),
       h('span', { class: 'crit__pts' }, ptsCell),
-      h('span', { class: ['crit__agree', split && 'is-split'], 'data-tip': votes.length ? `Голоса прогонов: ${Object.entries(dist).map(([k, n]) => `${k} ${n}`).join(', ')}` : null },
-        votes.length ? `${agree} из ${votes.length}` : ''),
+      h('span', { class: ['crit__agree', split && 'is-split'], 'data-tip': split ? `Прогоны модели разошлись. ${distText}` : null },
+        split ? `${agree} из ${votes.length}` : ''),
       icon('chevronDown', 16, 'crit__chev'));
 
     const inner = h('div', { class: 'crit__inner' });
     const panel = h('div', { class: 'crit__panel', inert: true, id: `crit-panel-${c.id}` }, inner);
     rowBtn.setAttribute('aria-controls', panel.id);
-    const item = h('div', { class: 'crit', dataset: { crit: c.id } }, rowBtn, panel);
+    const item = h('div', { class: 'crit', dataset: { crit: c.id, flag: isFlag ? '1' : null } }, rowBtn, panel);
     let built = false;
+    let appealSlot = null;
+
+    /* «Оспорить» прямо в строке, при наведении: для ролей, которые подают апелляции */
+    const canDispute = canAppeal && !openAppeal;
+    if (canDispute) {
+      item.append(h('button', {
+        type: 'button', class: 'crit__dispute', tabindex: -1, 'data-tip': 'Оспорить оценку критерия', 'data-kbd': 'A',
+        onclick: (e) => { e.stopPropagation(); item.openAppeal(); },
+      }, 'Оспорить'));
+    }
 
     item.addEventListener('mouseenter', () => { if (sel) transcript.setHover(sel); });
     item.addEventListener('mouseleave', () => transcript.setHover(null));
@@ -402,10 +566,11 @@ export async function mount(root, { params, query, ctx }) {
       if (open) {
         openRows.set(c.id, sel);
         transcript.setPinned(sel);
-        if (sel && focusTranscript) {
+        if (sel && focusTranscript && !tabbedMQ.matches) {
           const first = range ? range[0] : Math.min(...evTurns);
           transcript.focusTurns(first, range ? range[1] : first, { seekAudio: false });
         }
+        revealCrit(item);
       } else {
         openRows.delete(c.id);
         const rest = [...openRows.values()];
@@ -413,6 +578,11 @@ export async function mount(root, { params, query, ctx }) {
       }
     }
     item.toggleOpen = toggleOpen;
+    item.openAppeal = () => {
+      if (!canDispute) return;
+      if (!item.classList.contains('is-open')) toggleOpen(true, { focusTranscript: false });
+      if (appealSlot && appealSlot.expand) appealSlot.expand();
+    };
     rowBtn.addEventListener('click', () => toggleOpen(!item.classList.contains('is-open')));
 
     function buildBody() {
@@ -420,19 +590,20 @@ export async function mount(root, { params, query, ctx }) {
       if (r.reasoning) {
         b.append(h('div', null,
           h('div', { class: 'reason__label' }, ov ? 'Обоснование ИИ до апелляции' : 'Обоснование ИИ'),
-          h('p', { class: 'reason' }, linkify(r.reasoning))));
+          h('p', { class: 'reason' }, linkify(stripLead(r.reasoning, c)))));
       }
       if (normValue(origVal) === 'NA' && r.na_reason) {
         b.append(h('div', null, h('div', { class: 'reason__label' }, 'Почему Н/П'), h('p', { class: 'reason' }, linkify(r.na_reason))));
       }
       if (evTurns.length || range) {
+        const inRange = range && evTurns.every((t) => t >= range[0] && t <= range[1]);
         b.append(h('div', { class: 'chips' },
-          evTurns.map((t) => h('button', { type: 'button', class: 'chip', 'data-tip': preview(t), onclick: () => goTurn(t) }, `T${t + 1}`)),
-          range ? h('button', { type: 'button', class: 'chip chip--range', onclick: () => goTurn(range[0], range[1]) },
+          inRange ? null : evTurns.map((t) => h('button', { type: 'button', class: 'chip', 'data-tip': preview(t), onclick: () => goTurn(t) }, `T${t + 1}`)),
+          range ? h('button', { type: 'button', class: 'chip chip--range', 'data-tip': inRange && evTurns.length ? `Основание: ${evTurns.map((t) => `T${t + 1}`).join(', ')}` : null, onclick: () => goTurn(range[0], range[1]) },
             range[0] === range[1] ? `Проверена реплика T${range[0] + 1}` : `Проверен участок ${rangeLabel(range[0], range[1])}`) : null));
       }
       if (split) {
-        b.append(h('p', { class: 't-13 t-warn' }, `Прогоны модели разошлись: ${Object.entries(dist).map(([k, n]) => `${k} ${n}`).join(', ')}. Оценку стоит перепроверить.`));
+        b.append(h('p', { class: 't-13 t-warn' }, `Прогоны модели разошлись. ${distText}. Оценку стоит перепроверить.`));
       }
 
       /* апелляции по критерию */
@@ -448,60 +619,127 @@ export async function mount(root, { params, query, ctx }) {
           if (a.decision_reason) rows.push(['Причина', h('span', null, linkify(a.decision_reason))]);
           rows.push(['Проверяющий', `${a.reviewer || ''}${a.decided_at ? `, ${fmt.dateShort(a.decided_at)}` : ''}`]);
         }
-        b.append(h('dl', { class: 'dl' }, rows.map(([k, v]) => [h('dt', null, k), h('dd', null, v)])));
+        b.append(h('dl', { class: ['dl', a.justFiled && 'is-new'] }, rows.map(([k, v]) => [h('dt', null, k), h('dd', null, v)])));
+      }
+      if (openAppeal && openAppeal.justFiled) {
+        b.append(h('p', { class: 'filed', role: 'status' }, icon('check', 16), operator ? 'Оценка оспорена. Апелляция передана проверяющему.' : 'Апелляция подана и ждёт проверяющего.'));
+      } else if (openAppeal && operator) {
+        b.append(h('p', { class: 't-13 t-2' }, 'Оценка оспорена, апелляция на рассмотрении у проверяющего.'));
       }
 
-      /* форма апелляции */
-      if (!openAppeal) {
-        if (can('appeal')) b.append(appealForm(ev, c));
-        else b.append(h('div', null, gate(button('Подать апелляцию', { kind: 'secondary', size: 'sm' }), 'appeal')));
-      } else if (hasRole('operator')) {
-        b.append(h('p', { class: 't-13 t-2' }, 'Оценка оспорена, апелляция на рассмотрении у проверяющего.'));
+      /* апелляция: кнопка раскрывает форму */
+      if (canDispute) {
+        appealSlot = appealForm(ev, c, evTurns, range);
+        b.append(appealSlot.el);
       }
       return b;
     }
     return item;
   }
 
-  function appealForm(ev, c) {
-    const operator = hasRole('operator');
-    const ta = h('textarea', { class: 'input', rows: 3, placeholder: operator ? 'С чем вы не согласны. Ссылайтесь на реплики, например T12 или T12-T15.' : 'Почему оценка неверна. Ссылайтесь на реплики, например T12 или T12-T15.' });
-    const msg = h('span', { class: 'inline-msg', role: 'status' });
-    const submit = button(operator ? 'Оспорить оценку' : 'Подать апелляцию', {
-      kind: 'primary', size: 'sm',
-      onClick: (e) => withBusy(e.currentTarget, async () => {
-        msg.className = 'inline-msg';
-        msg.textContent = '';
-        if (!ta.value.trim()) { msg.classList.add('is-error'); msg.textContent = 'Опишите, почему оценка неверна.'; ta.focus(); return; }
-        try {
-          const a = await api.fileAppeal(ev.id, c.id, ta.value.trim());
-          toast(operator ? `Оценка оспорена, апелляция №${a.id} передана проверяющему` : `Апелляция №${a.id} подана`, 'success');
-          ctx.refreshBadges();
-          await refreshEvaluations();
-          await show(ev.id, { push: false, keepScroll: true });
-          openCrit(c.id);
-        } catch (err) {
-          msg.classList.add('is-error');
-          msg.textContent = err.message;
-        }
-      }),
-    });
-    ta.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit.click(); } });
-    return h('div', { class: 'appeal-form' },
-      field(operator ? 'Не согласны с оценкой?' : 'Апелляция', ta, { hint: 'Ctrl+Enter отправляет. Решение примет проверяющий.' }),
-      h('div', { class: 'factions' }, submit, msg));
+  function appealForm(ev, c, evTurns, range) {
+    const el = h('div', { class: 'appeal-slot' });
+    const label = operator ? 'Оспорить оценку' : 'Подать апелляцию';
+    const collapsed = () => {
+      clear(el).append(button(label, { kind: 'secondary', size: 'sm', iconName: 'appeals', onClick: () => expand(), tip: 'Клавиша A' }));
+    };
+    const expand = () => {
+      if (el.querySelector('textarea')) { el.querySelector('textarea').focus(); return; }
+      const refs = (evTurns.length ? evTurns.slice(0, 2).map((t) => `T${t + 1}`) : range ? [rangeLabel(range[0], range[1])] : []).join(', ');
+      const ta = h('textarea', { class: 'input', rows: 3, placeholder: 'С чем вы не согласны. Ссылайтесь на реплики, например T12 или T12-T15.' });
+      if (refs) ta.value = `${refs}: `;
+      const msg = h('span', { class: 'inline-msg', role: 'status' });
+      const submit = button(label, {
+        kind: 'primary', size: 'sm',
+        onClick: (e) => withBusy(e.currentTarget, async () => {
+          msg.className = 'inline-msg';
+          msg.textContent = '';
+          const text = ta.value.trim();
+          if (!text || text === `${refs}:`) { msg.classList.add('is-error'); msg.textContent = 'Опишите, почему оценка неверна.'; ta.focus(); return; }
+          try {
+            const a = await api.fileAppeal(ev.id, c.id, text);
+            toast(operator ? `Оценка оспорена, апелляция №${a.id} передана проверяющему` : `Апелляция №${a.id} подана`, 'success');
+            ctx.refreshBadges();
+            justFiled = { evalId: ev.id, cid: c.id, appealId: a.id };
+            await refreshEvaluations();
+            await show(ev.id, { push: false, keepScroll: true });
+            openCrit(c.id, { focusTranscript: false });
+          } catch (err) {
+            msg.classList.add('is-error');
+            msg.textContent = err.message;
+          }
+        }),
+      });
+      ta.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit.click(); }
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); collapsed(); }
+      });
+      clear(el).append(h('div', { class: 'appeal-form' },
+        field(operator ? 'Почему оценка неверна' : 'Апелляция', ta, { hint: isTouch() ? 'Решение примет проверяющий.' : 'Ctrl+Enter отправляет, Esc отменяет. Решение примет проверяющий.' }),
+        h('div', { class: 'factions' }, submit, button('Отмена', { kind: 'ghost', size: 'sm', onClick: () => collapsed() }), msg)));
+      setTimeout(() => { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); revealCrit(el.closest('.crit')); }, 0);
+    };
+    collapsed();
+    return { el, expand };
+  }
+
+  /* только что поданная апелляция: подсветка и подтверждение рядом с критерием */
+  let justFiled = null;
+  async function evaluationWithMark(id) {
+    const ev = await api.evaluation(id);
+    if (justFiled && justFiled.evalId === ev.id) {
+      for (const a of ev.appeals || []) if (a.id === justFiled.appealId) a.justFiled = true;
+      justFiled = null;
+    }
+    return ev;
+  }
+
+  /* оператор: «Оспорить оценку» в шапке, список критериев с потерянными баллами первыми */
+  function openDispute(anchor) {
+    if (!current || current.status !== 'done') return;
+    const config = (current.checklist && current.checklist.config) || { criteria: [] };
+    const sc = ((current.final && current.final.score) || {}).criteria || {};
+    const vals = (current.final && current.final.values) || {};
+    const openIds = new Set((current.appeals || []).filter((a) => a.status === 'open').map((a) => a.criterion_id));
+    const list = (config.criteria || []).map((c) => {
+      const s = sc[c.id] || {};
+      const lost = c.type === 'flag' ? (normValue(vals[c.id]) === 'YES' ? 100 : 0) : isNum(s.effective_weight) && isNum(s.points) ? s.effective_weight - s.points : 0;
+      return { c, lost };
+    }).sort((a, b) => b.lost - a.lost);
+    const menuEl = h('div', { role: 'menu', class: 'dispute' },
+      h('div', { class: 'menu-group' }, 'Какой критерий оспорить'),
+      list.map(({ c, lost }) => h('button', {
+        type: 'button', class: 'menu-item', role: 'menuitem', disabled: openIds.has(c.id),
+        onclick: () => {
+          closePopover();
+          const el = evalScroll.querySelector(`[data-crit="${CSS.escape(c.id)}"]`);
+          if (el && el.openAppeal) el.openAppeal();
+        },
+      },
+      h('span', { class: 'crit__code' }, c.code || c.id),
+      h('span', { class: 'menu-item__label' }, c.name),
+      valueBadge(c, vals[c.id]),
+      openIds.has(c.id) ? h('span', { class: 'menu-item__hint' }, 'уже оспорено') : lost > 0.004 && c.type !== 'flag' ? h('span', { class: 'menu-item__hint t-danger' }, `-${fmt.n2(lost)}`) : null)));
+    popover(anchor, menuEl, { align: 'end', cls: 'pop--menu' });
   }
 
   /* ---------- переоценка ---------- */
   async function openRerun(anchor) {
-    let list = [];
-    let settings = null;
-    try {
-      [list, settings] = await Promise.all([
-        api.checklists().then((r) => r.items || []),
-        api.settings().then((r) => r.settings).catch(() => null),
-      ]);
-    } catch (e) { toastError(e, 'Чек-листы не загружены'); return; }
+    // пока грузятся чек-листы, настройки и оценка стоимости, кнопка показывает занятость
+    const loaded = await withBusy(anchor, async () => {
+      try {
+        const [items, sr] = await Promise.all([
+          api.checklists().then((r) => r.items || []),
+          api.settings().catch(() => null),
+        ]);
+        const noKey = !!(sr && sr.has_anthropic_key === false && (sr.settings || {}).provider !== 'openai_compat');
+        const st = sr && sr.settings;
+        return { items, st, noKey, est: await fetchEstimate(api, st, 1) };
+      } catch (e) { toastError(e, 'Чек-листы не загружены'); return null; }
+    });
+    if (!loaded || destroyed) return;
+    const list = loaded.items;
+    const est = loaded.est;
     if (!list.length) { toast('Нет чек-листов. Создайте его в разделе «Чек-листы».', 'error'); return; }
     const active = list.find((c) => c.is_active);
     const ev = current;
@@ -509,9 +747,9 @@ export async function mount(root, { params, query, ctx }) {
     const sel = select([...list].sort((a, b) => b.id - a.id).map((c) => ({
       value: c.id, label: `Версия ${c.version}${c.is_active ? ', активная' : ''}${ev && c.id === ev.checklist_id ? ', как в текущей' : ''}`,
     })), def);
-    const est = estimateCost(settings, 1);
+    const hasDecided = evaluations.some((e) => (e.decided_appeals || 0) > 0);
     const run = button('Запустить', {
-      kind: 'primary', size: 'sm',
+      kind: 'primary', size: 'sm', disabled: loaded.noKey,
       onClick: (e) => withBusy(e.currentTarget, async () => {
         try {
           const r = await api.evaluate([dialogId], Number(sel.value));
@@ -525,7 +763,9 @@ export async function mount(root, { params, query, ctx }) {
     });
     popover(anchor, h('div', { class: 'fstack' },
       h('div', { class: 'pop__title', style: { marginBottom: 0 } }, ev ? 'Переоценить диалог' : 'Оценить диалог'),
-      field('Версия чек-листа', sel, { hint: costText(est) }),
+      field('Версия чек-листа', sel, est ? { hint: costText(est) } : {}),
+      hasDecided ? h('p', { class: 't-12 t-warn' }, 'Решения по апелляциям в новую оценку не переносятся.') : null,
+      loaded.noKey ? h('p', { class: 't-12 t-warn' }, 'Ключ Claude API не задан. ', h('a', { href: '#/settings', onclick: () => closePopover() }, 'Настройки')) : null,
       h('div', { class: 'factions' }, run, button('Отмена', { kind: 'ghost', size: 'sm', onClick: () => closePopover() }))), { cls: 'pop--form' });
   }
 
@@ -541,7 +781,7 @@ export async function mount(root, { params, query, ctx }) {
 
   function compareSection(ev) {
     const others = evaluations.filter((e) => e.status === 'done' && e.id !== ev.id);
-    const sel = select(others.map((e) => ({ value: e.id, label: `№${e.id} · v${e.checklist_version ?? '?'} · ${fmt.dateShort(e.created_at)} · ${fmt.n2(e.final_total)}` })), compareWith,
+    const sel = select(others.map((e) => ({ value: e.id, label: `Оценка №${e.id}, ${fmt.dateShort(e.created_at)}, v${e.checklist_version ?? '?'}, ${fmt.n2(e.final_total)}` })), compareWith,
       { class: 'input input--sm', 'aria-label': 'Оценка для сравнения' });
     const out = h('div', null, skeleton(5));
     const load = async () => {
@@ -612,7 +852,7 @@ export async function mount(root, { params, query, ctx }) {
         h('span', null, `№${a.id}, v${a.checklist_version ?? '?'}: `, h('b', null, fmt.n2(a.final_total))),
         h('span', null, `№${b.id}, v${b.checklist_version ?? '?'}: `, h('b', null, fmt.n2(b.final_total))),
         h('span', null, 'Разница: ', h('b', { class: dt > 0.004 ? 'delta-up' : dt < -0.004 ? 'delta-down' : '' }, dt === null ? 'нет' : sign(dt))),
-        h('span', { class: 't-2' }, `изменилось критериев: ${changes}`)),
+        h('span', { class: 't-2' }, changes ? `${plural(changes, 'изменился', 'изменились', 'изменились')} ${changes} ${plural(changes, 'критерий', 'критерия', 'критериев')}` : 'критерии не изменились')),
       h('table', { class: 'tbl tbl--compact' },
         h('thead', null, h('tr', null, h('th', null, 'Критерий'), h('th', null, `№${a.id}, баллы`), h('th', null, `№${b.id}, баллы`), h('th', { class: 'num' }, 'Разница'))),
         tbody));
@@ -676,11 +916,22 @@ export async function mount(root, { params, query, ctx }) {
             kv('Реплик на удержании', Array.isArray(facts.hold_turns) ? String(facts.hold_turns.length) : '0')))));
   }
 
-  renderEvalSelect();
+  /* ---------- команды палитры ---------- */
+  const unreg = ctx.registerCommands(() => [
+    current && current.status === 'done' ? { label: 'Разбор для оператора', icon: 'sheet', run: () => coachBtn.click() } : null,
+    canEval && evaluations.length ? { label: 'Переоценить диалог', icon: 'check', run: () => openRerun(rerunBtn.isConnected ? rerunBtn : actionsBox) } : null,
+    neighbour(1) ? { label: `Следующий диалог: ${neighbour(1)}`, icon: 'chevronDown', hint: ']', run: () => goNeighbour(1) } : null,
+    neighbour(-1) ? { label: `Предыдущий диалог: ${neighbour(-1)}`, icon: 'chevronUp', hint: '[', run: () => goNeighbour(-1) } : null,
+    operator && current && current.status === 'done' ? { label: 'Оспорить оценку', icon: 'appeals', run: () => openDispute(disputeBtn) } : null,
+  ]);
+
+  renderActions();
   show(currentId, { push: false });
 
   return () => {
     destroyed = true;
+    unreg();
+    if (actionsRO) actionsRO.disconnect();
     document.removeEventListener('keydown', onKey);
     if (pollTimer) clearTimeout(pollTimer);
     if (transcript.audio) { try { transcript.audio.pause(); } catch { /* ignore */ } }

@@ -1,11 +1,11 @@
 // Чек-листы: версии слева, редактор справа (общие поля, секции, таблица критериев с раскрытием
 // строки для правки), живая проверка и нижняя панель сохранения. Каждое сохранение создаёт новую версию.
-// Сохранять и активировать может только администратор; остальные видят чек-лист в режиме чтения.
+// Сохранять и активировать может только супервайзер; остальные видят чек-лист в режиме чтения.
 
 import { api } from '../api.js';
 import {
   h, clear, icon, button, iconButton, fmt, isNum, toast, toastError, confirmDialog, debounce, withBusy, dotted,
-  emptyState, errorState, skeleton, field, select, plural, pageHeader, TYPE_LABELS, replay, append,
+  emptyState, errorState, skeleton, field, select, plural, pageHeader, TYPE_LABELS, replay, append, menu,
 } from '../ui.js';
 import { can } from '../session.js';
 
@@ -13,7 +13,7 @@ const clone = (x) => JSON.parse(JSON.stringify(x));
 
 export async function mount(root, { query, ctx }) {
   ctx.setTitle('Чек-листы');
-  const editable = can('admin');
+  const editable = can('manage');
   let destroyed = false;
   const state = {
     versions: [],
@@ -22,19 +22,42 @@ export async function mount(root, { query, ctx }) {
     source: null,
     expanded: new Set(),
     errors: [],
+    issues: [],
     validating: false,
     saved: null,
+    allOpen: false,
+    sim: null,
+    // новый критерий: ошибки пустых полей показываются после ухода из поля или по клику на счётчик,
+    // иначе подсказки появляются под курсором, пока пользователь ещё заполняет форму
+    fresh: new Set(),
+    touched: new Set(),
+    revealAll: false,
   };
 
   const headerMeta = h('span');
   const listBox = h('div', { class: 'pane__scroll' });
   const editorScroll = h('div', { class: 'pane__scroll' });
   const foot = h('div', { class: 'pane__foot' });
+  const simBox = h('div', { class: 'sim', hidden: true, 'aria-live': 'polite' });
+  /* телефон: список версий заменяет выпадающий список над редактором */
+  const verSel = h('select', { class: 'input', 'aria-label': 'Версия чек-листа', onchange: () => { if (verSel.value) openVersion(Number(verSel.value)).then(renderVerBar); } });
+  const verAct = h('span', { class: 'cl-vbar__act' });
+  const verBar = h('div', { class: 'cl-vbar' }, verSel, verAct, versionsMenuBtn());
   root.append(
-    pageHeader({ title: 'Чек-листы', meta: headerMeta, actions: editable ? [button('Сбросить к исходному', { kind: 'secondary', size: 'sm', onClick: () => resetToDefault() })] : null }),
+    pageHeader({ title: 'Чек-листы', meta: headerMeta }),
+    verBar,
     h('div', { class: 'cl-layout' },
-      h('aside', { class: 'pane', 'aria-label': 'Версии' }, h('div', { class: 'panel__head' }, h('h2', { class: 'panel__title' }, 'Версии')), listBox),
-      h('section', { class: 'pane', 'aria-label': 'Редактор' }, editorScroll, foot)));
+      h('aside', { class: 'pane', 'aria-label': 'Версии' }, h('div', { class: 'panel__head' }, h('h2', { class: 'panel__title' }, 'Версии'), versionsMenuBtn()), listBox),
+      h('section', { class: 'pane', 'aria-label': 'Редактор' }, editorScroll, simBox, foot)));
+
+  function versionsMenuBtn() {
+    if (!editable) return null;
+    const b = iconButton('more', 'Действия с версиями', () => menu(b, [
+      { label: 'Сбросить к исходному чек-листу', icon: 'undo', onClick: () => resetToDefault() },
+    ]));
+    b.setAttribute('aria-haspopup', 'menu');
+    return b;
+  }
 
   const onBeforeUnload = (e) => { if (isDirty()) { e.preventDefault(); e.returnValue = ''; } };
   window.addEventListener('beforeunload', onBeforeUnload);
@@ -56,13 +79,40 @@ export async function mount(root, { query, ctx }) {
     return true;
   }
 
+  function renderVerBar() {
+    clear(verSel);
+    const cur = state.source && state.source.id;
+    if (state.source && state.source.default) verSel.append(h('option', { value: '', selected: true }, 'Исходный чек-лист, не сохранён'));
+    for (const v of state.versions) {
+      verSel.append(h('option', { value: v.id, selected: v.id === cur }, `Версия ${v.version}${v.is_active ? ', активная' : ''}`));
+    }
+    verSel.disabled = !state.versions.length;
+    clear(verAct);
+    const v = state.versions.find((x) => x.id === cur);
+    if (v && !v.is_active && editable) {
+      verAct.append(button('Сделать активной', {
+        kind: 'secondary', size: 'sm',
+        onClick: (e) => withBusy(e.currentTarget, async () => {
+          try {
+            await api.activateChecklist(v.id);
+            toast(`Версия ${v.version} активна. Новые оценки пойдут по ней.`, 'success');
+            if (state.source && !state.source.default) state.source.is_active = state.source.id === v.id;
+            if (state.saved) state.saved.is_active = state.saved.id === v.id;
+            await loadVersions();
+            renderFoot();
+          } catch (err) { toastError(err, 'Версия не активирована'); }
+        }),
+      }));
+    }
+  }
+
   function renderVersions() {
+    renderVerBar();
     clear(listBox);
     const active = state.versions.find((v) => v.is_active);
     clear(headerMeta).append(...dotted([
       active ? `Активная версия ${active.version}` : 'Активной версии нет',
       `${state.versions.length} ${plural(state.versions.length, 'версия', 'версии', 'версий')}`,
-      editable ? null : 'только просмотр',
     ]));
     if (!state.versions.length) {
       listBox.append(h('p', { class: 't-2', style: { padding: '16px' } }, 'Сохранённых версий нет.'));
@@ -78,7 +128,10 @@ export async function mount(root, { query, ctx }) {
             try {
               await api.activateChecklist(v.id);
               toast(`Версия ${v.version} активна. Новые оценки пойдут по ней.`, 'success');
+              if (state.source && !state.source.default) state.source.is_active = state.source.id === v.id;
+              if (state.saved) state.saved.is_active = state.saved.id === v.id;
               await loadVersions();
+              renderFoot();
             } catch (err) { toastError(err, 'Версия не активирована'); }
           });
         },
@@ -128,6 +181,8 @@ export async function mount(root, { query, ctx }) {
     state.source = source;
     state.expanded = new Set();
     state.saved = null;
+    state.sim = null;
+    state.allOpen = false;
     renderVersions();
     renderEditor();
     validate();
@@ -143,37 +198,149 @@ export async function mount(root, { query, ctx }) {
       c.weight = isNum(Number(c.weight)) ? Number(c.weight) : 0;
       c.na_allowed = !!c.na_allowed;
       for (const k of ['code', 'name', 'description', 'na_condition', 'guidance', 'section']) if (c[k] == null) c[k] = '';
+      if (c.coaching == null) delete c.coaching;
     }
     return cfg;
   }
 
-  /* ---------- проверка ---------- */
+  /* ---------- проверка ----------
+   * Сервер возвращает issues с местом ошибки (criterion_index, field, step_index): поле подсвечивается
+   * прямо в форме критерия, счётчик в подвале ведёт к первой ошибке. Если сервер не ответил, работает
+   * короткая локальная проверка. */
   const validate = debounce(async () => {
     if (!state.cfg) return;
-    const local = localErrors(state.cfg);
     state.validating = true;
     renderFoot();
     try {
       const r = await api.validateChecklist(state.cfg);
       if (destroyed) return;
-      state.errors = [...new Set([...(r.errors || []), ...local])];
+      state.issues = Array.isArray(r.issues) ? r.issues : (r.errors || []).map((m) => ({ message: m, criterion_index: null }));
     } catch {
-      state.errors = local;
+      state.issues = localIssues(state.cfg);
     }
+    state.errors = [...new Set(state.issues.map((x) => x.message))];
     state.validating = false;
     renderErrors();
+    paintIssues();
     renderFoot();
+    simulate();
   }, 350);
 
-  function localErrors(cfg) {
-    const errs = [];
-    const codes = cfg.criteria.map((c) => String(c.code || '').trim()).filter(Boolean);
-    if (new Set(codes).size !== codes.length) errs.push('Коды критериев повторяются.');
-    for (const c of cfg.criteria) {
-      if (c.type === 'scale' && c.scale.some((s) => s.value === '' || !isNum(Number(s.value)))) errs.push(`${c.name || c.id}: у каждой ступени шкалы должно быть число.`);
-      if (c.na_allowed && c.type !== 'flag' && !String(c.na_condition || '').trim()) errs.push(`${c.name || c.id}: опишите условие Н/П.`);
+  function localIssues(cfg) {
+    const out = [];
+    const seen = new Map();
+    cfg.criteria.forEach((c, i) => {
+      const label = c.name || c.code || c.id;
+      const code = String(c.code || '').trim();
+      if (code && seen.has(code)) out.push({ message: `${label}: код ${code} уже есть у другого критерия.`, criterion_index: i, field: 'code' });
+      if (code) seen.set(code, i);
+      if (!String(c.name || '').trim()) out.push({ message: `${label}: не задано название.`, criterion_index: i, field: 'name' });
+      if (!String(c.description || '').trim()) out.push({ message: `${label}: не задано правило оценки.`, criterion_index: i, field: 'description' });
+      if (c.na_allowed && c.type !== 'flag' && !String(c.na_condition || '').trim()) out.push({ message: `${label}: разрешён Н/П, но не указано, когда он ставится.`, criterion_index: i, field: 'na_condition' });
+      if (c.type === 'scale') c.scale.forEach((st, k) => { if (st.value === '' || !isNum(Number(st.value))) out.push({ message: `${label}: ступень ${k + 1}: укажите число баллов.`, criterion_index: i, field: 'scale', step_index: k }); });
+    });
+    return out;
+  }
+
+  /** Сообщение без повтора названия критерия: в форме и так видно, о каком он. */
+  const shortMsg = (m) => String(m).replace(/^[^:]{1,80}:\s*/, '').replace(/^./, (ch) => ch.toUpperCase());
+
+  function paintIssues() {
+    if (!critBody) return;
+    for (const tr of critBody.querySelectorAll('tr.has-error')) tr.classList.remove('has-error');
+    for (const el of critBody.querySelectorAll('[data-err]')) { el.textContent = ''; el.hidden = true; }
+    for (const el of critBody.querySelectorAll('[aria-invalid="true"]')) el.removeAttribute('aria-invalid');
+    for (const x of state.issues) {
+      const i = x.criterion_index;
+      if (!isNum(i)) continue;
+      const c = state.cfg.criteria[i];
+      if (!c) continue;
+      const tr = critBody.querySelector(`tr[data-row="${CSS.escape(c.id)}"]`);
+      if (tr) { tr.classList.add('has-error'); tr.dataset.tip = x.message; }
+      const form = critBody.querySelector(`[data-edit="${CSS.escape(c.id)}"]`);
+      if (!form) continue;
+      if (state.fresh.has(c.id) && !state.revealAll && !state.touched.has(`${c.id}:${x.field}`)) continue;
+      const known = ['code', 'name', 'description', 'na_condition', 'weight', 'section', 'type', 'scale', 'guidance'];
+      const key = known.includes(x.field) ? x.field : 'general';
+      const slot = form.querySelector(`[data-err="${key}"]`) || form.querySelector('[data-err="general"]');
+      if (slot) { slot.hidden = false; slot.append(h('span', null, shortMsg(x.message))); }
+      if (x.field === 'scale' && isNum(x.step_index)) {
+        const inp = form.querySelector(`input[data-step="${x.step_index}"]`);
+        if (inp) inp.setAttribute('aria-invalid', 'true');
+      } else if (x.field) {
+        for (const inp of form.querySelectorAll(`[data-f="${x.field}"]`)) inp.setAttribute('aria-invalid', 'true');
+      }
     }
-    return errs;
+    for (const tr of critBody.querySelectorAll('tr[data-row]:not(.has-error)')) tr.removeAttribute('data-tip');
+  }
+
+  function jumpToFirstError() {
+    state.revealAll = true;
+    paintIssues();
+    const x = state.issues.find((it) => isNum(it.criterion_index)) || null;
+    if (!x) { editorScroll.scrollTo({ top: 0, behavior: 'smooth' }); return; }
+    const c = state.cfg.criteria[x.criterion_index];
+    if (!c) return;
+    if (!state.expanded.has(c.id)) { state.expanded.add(c.id); renderCriteria(); paintIssues(); }
+    requestAnimationFrame(() => {
+      const form = critBody.querySelector(`[data-edit="${CSS.escape(c.id)}"]`);
+      if (!form) return;
+      const target = (x.field === 'scale' && isNum(x.step_index) ? form.querySelector(`input[data-step="${x.step_index}"]`) : null)
+        || form.querySelector(`[data-f="${x.field}"]`) || form.querySelector('input, textarea');
+      if (target) { target.scrollIntoView({ block: 'center', behavior: 'smooth' }); target.focus({ preventScroll: true }); }
+    });
+  }
+
+  /* ---------- влияние правок на уже оценённые диалоги (без модели) ---------- */
+  let simSeq = 0;
+  const simulate = debounce(async () => {
+    const seq = ++simSeq;
+    // Пока есть ошибки, строка остаётся на месте с прошлым расчётом: если она исчезнет, список
+    // над ней вырастет и прокрутка сдвинется прямо под курсором.
+    if (!state.cfg || !isDirty()) { state.sim = null; state.simStale = false; renderSim(); return; }
+    if (state.issues.length) { state.simStale = true; renderSim(); return; }
+    let r = null;
+    try { r = await api.simulateChecklist(state.cfg); } catch { r = null; }
+    if (destroyed || seq !== simSeq) return;
+    state.sim = r && r.before && r.after ? r : null;
+    state.simStale = false;
+    renderSim();
+  }, 300);
+
+  function renderSim() {
+    clear(simBox);
+    const r = state.sim;
+    const keep = state.simStale && state.cfg && isDirty();
+    simBox.hidden = !r && !keep;
+    simBox.classList.toggle('is-stale', !!keep);
+    if (!r) {
+      if (keep) simBox.append(icon('spark', 16), h('span', { class: 'sim__main t-2' }, 'Влияние на итоги посчитаем, когда ошибок не останется'));
+      return;
+    }
+    if (keep) {
+      simBox.append(icon('spark', 16), h('span', { class: 'sim__main' }, 'Средний итог ', h('b', null, fmt.n2(r.before.avg_final)), ' станет ', h('b', null, fmt.n2(r.after.avg_final))),
+        h('span', { class: 'sim__details t-2' }, 'Пересчёт после исправления ошибок'));
+      return;
+    }
+    const b = r.before.avg_final;
+    const a = r.after.avg_final;
+    const d = isNum(a) && isNum(b) ? a - b : null;
+    const changed = r.changed_count ?? (r.changed || []).length;
+    const movers = [...(r.changed || [])].sort((x, y) => Math.abs(y.delta) - Math.abs(x.delta)).slice(0, 8);
+    const details = h('details', { class: 'sim__details', open: !!state.simOpen, ontoggle: (e) => { state.simOpen = e.currentTarget.open; } },
+      h('summary', null, changed ? `Изменится итог у ${changed} ${plural(changed, 'диалога', 'диалогов', 'диалогов')} из ${r.dialogs}` : 'Итоги диалогов не изменятся'),
+      movers.length ? h('ul', { class: 'sim__list' }, movers.map((m) => h('li', null,
+        h('a', { href: `#/dialog/${encodeURIComponent(m.dialog_id)}?eval=${m.evaluation_id}` }, m.dialog_id),
+        m.operator ? h('span', { class: 't-2' }, m.operator) : null,
+        h('span', { class: 'sim__nums' }, `${fmt.n2(m.before)}, станет `, h('b', null, fmt.n2(m.after))),
+        h('span', { class: m.delta > 0 ? 'delta-up' : 'delta-down' }, `${m.delta > 0 ? '+' : ''}${fmt.n2(m.delta)}`)))) : null);
+    simBox.append(
+      icon('spark', 16),
+      h('span', { class: 'sim__main' },
+        'Средний итог ', h('b', null, fmt.n2(b)), d !== null && Math.abs(d) > 0.004 ? [' станет ', h('b', { class: d > 0 ? 'delta-up' : 'delta-down' }, fmt.n2(a)), ` (${d > 0 ? '+' : ''}${fmt.n2(d)})`] : ' не изменится',
+        r.after.gross !== r.before.gross ? `, грубых ошибок ${r.before.gross}, станет ${r.after.gross}` : null,
+        (r.new_criteria || []).length ? h('span', { class: 't-2' }, '. Новые критерии учтутся после переоценки') : null),
+      details);
   }
 
   function weightSum() {
@@ -184,6 +351,8 @@ export async function mount(root, { query, ctx }) {
   let errorsBox;
   let sectionsBox;
   let critBody;
+  let toggleAllBtn;
+  let addBtn;
 
   function onChange() {
     state.saved = null;
@@ -197,7 +366,7 @@ export async function mount(root, { query, ctx }) {
     const dis = !editable;
 
     if (!editable) {
-      editorScroll.append(h('div', { class: 'ed-note' }, 'Только просмотр. Изменять и активировать чек-лист может администратор.'));
+      editorScroll.append(h('div', { class: 'ed-note' }, icon('eye', 16), 'Только просмотр. Изменять и активировать чек-лист может супервайзер.'));
     }
     errorsBox = h('div');
     editorScroll.append(errorsBox);
@@ -208,12 +377,16 @@ export async function mount(root, { query, ctx }) {
     editorScroll.append(h('section', { class: 'ed-sect' },
       h('div', { class: 'ed-sect__head' }, h('h2', { class: 'ed-sect__title' }, 'Критерии'),
         h('div', { class: 'factions' },
-          button('Развернуть все', { kind: 'ghost', size: 'sm', onClick: () => { cfg.criteria.forEach((c) => state.expanded.add(c.id)); renderCriteria(); } }),
-          button('Свернуть все', { kind: 'ghost', size: 'sm', onClick: () => { state.expanded.clear(); renderCriteria(); } }),
-          editable ? button('Добавить критерий', { kind: 'secondary', size: 'sm', iconName: 'plus', onClick: addCriterion }) : null)),
+          toggleAllBtn = button(state.allOpen ? 'Свернуть все' : 'Развернуть все', { kind: 'ghost', size: 'sm', onClick: () => {
+            state.allOpen = !state.allOpen;
+            if (state.allOpen) cfg.criteria.forEach((c) => state.expanded.add(c.id)); else state.expanded.clear();
+            toggleAllBtn.querySelector('span').textContent = state.allOpen ? 'Свернуть все' : 'Развернуть все';
+            renderCriteria(); paintIssues();
+          } }),
+          editable ? addBtn = button('Добавить критерий', { kind: 'secondary', size: 'sm', iconName: 'plus', onClick: addCriterion }) : null)),
       h('div', { class: 'tbl-wrap' },
-        h('table', { class: 'tbl ctbl' },
-          h('colgroup', null, [28, 44, null, 124, 76, 80, 84, 40].map((w) => h('col', { style: w ? { width: `${w}px` } : null }))),
+        h('table', { class: 'tbl ctbl tbl--cards' },
+          h('colgroup', null, [28, 48, null, 168, 76, 84, 88, 44].map((w) => h('col', { style: w ? { width: `${w}px` } : null }))),
           h('thead', null, h('tr', null,
             h('th'), h('th', null, 'Код'), h('th', null, 'Название'), h('th', null, 'Секция'), h('th', null, 'Тип'),
             h('th', { class: 'num' }, 'Вес'), h('th', { class: 'num' }, 'Доля итога'), h('th', null, 'Н/П'))),
@@ -252,12 +425,15 @@ export async function mount(root, { query, ctx }) {
   function renderErrors() {
     if (!errorsBox) return;
     clear(errorsBox);
-    if (!state.errors.length) return;
-    errorsBox.append(h('div', { class: 'ed-errors', role: 'alert' }, h('ul', null, state.errors.map((e) => h('li', null, e)))));
+    const general = [...new Set(state.issues.filter((x) => !isNum(x.criterion_index)).map((x) => x.message))];
+    if (!general.length) return;
+    errorsBox.append(h('div', { class: 'ed-errors', role: 'alert' }, h('ul', null, general.map((e) => h('li', null, e)))));
   }
 
   function renderFoot() {
     clear(foot);
+    // только просмотр: на телефоне полоса сохранения скрыта (класс), на компьютере сводка весов остаётся
+    foot.classList.toggle('pane__foot--ro', !editable);
     if (!state.cfg) return;
     const sum = weightSum();
     const dirty = isDirty();
@@ -266,7 +442,7 @@ export async function mount(root, { query, ctx }) {
       h('span', { class: off ? 't-warn strong' : 'strong', 'data-tip': off ? 'Итог всё равно приводится к 100: веса нормируются.' : null }, `Веса ${fmt.n2(sum)}`),
       h('span', { class: 'sep' }, '·'),
       state.validating ? h('span', { class: 't-2' }, 'Проверка')
-        : state.errors.length ? h('span', { class: 't-danger strong' }, `${state.errors.length} ${plural(state.errors.length, 'ошибка', 'ошибки', 'ошибок')}`)
+        : state.errors.length ? h('button', { type: 'button', class: 'link-btn t-danger', 'data-tip': 'Перейти к первой ошибке', onclick: jumpToFirstError }, `${state.errors.length} ${plural(state.errors.length, 'ошибка', 'ошибки', 'ошибок')}`)
           : h('span', { class: 't-ok' }, 'Ошибок нет'),
       h('span', { class: 'sep' }, '·'),
       h('span', { class: dirty ? 't-warn' : 't-2' }, state.source && state.source.default ? 'Исходный, не сохранён' : dirty ? 'Изменено' : `Без изменений, версия ${state.source ? state.source.version : ''}`));
@@ -276,13 +452,13 @@ export async function mount(root, { query, ctx }) {
     }
     if (state.saved) {
       const v = state.saved;
-      foot.append(h('span', { class: 't-13' },
+      foot.append(h('span', { class: 't-13 foot-status' },
         h('span', { class: 't-ok strong' }, `Версия ${v.version} сохранена${v.is_active ? ' и активна' : ''}. `),
         h('a', { href: `#/dialogs?checklist=${v.id}` }, `Оценить диалоги по версии ${v.version}`)),
       h('span', { class: 'spacer' }));
       return;
     }
-    const note = h('input', { class: 'input input--sm', placeholder: 'Что изменилось', 'aria-label': 'Комментарий к версии', style: { width: '120px' } });
+    const note = h('input', { class: 'input input--sm foot-note', placeholder: 'Что изменилось, коротко', 'aria-label': 'Комментарий к версии' });
     const activate = h('input', { type: 'checkbox', checked: state.draftActivate !== false });
     activate.addEventListener('change', () => { state.draftActivate = activate.checked; });
     const nothing = !dirty && !(state.source && state.source.default);
@@ -299,10 +475,12 @@ export async function mount(root, { query, ctx }) {
           await loadVersions();
           state.saved = { id: v.id, version: v.version, is_active: v.is_active ?? activate.checked };
           state.draftNote = '';
+          state.sim = null;
+          renderSim();
           renderFoot();
           toast(`Версия ${v.version} сохранена`, 'success');
         } catch (err) {
-          if (err.errors) { state.errors = err.errors; renderErrors(); }
+          if (err.errors) { state.errors = err.errors; validate(); }
           toastError(err, 'Версия не сохранена');
           renderFoot();
         }
@@ -372,14 +550,22 @@ export async function mount(root, { query, ctx }) {
   function addCriterion() {
     const id = nextId();
     const cfg = state.cfg;
-    const flagIdx = cfg.criteria.findIndex((c) => c.type === 'flag');
+    // в последнюю секцию с баллами, сразу после её последнего критерия: заголовок секции не дублируется
+    const scored = cfg.criteria.filter((c) => c.type !== 'flag');
+    const section = (scored.length ? scored[scored.length - 1].section : (cfg.sections[0] || {}).id) || '';
+    let at = -1;
+    cfg.criteria.forEach((c, i) => { if (c.section === section) at = i; });
     const c = {
-      id, code: id.replace(/^c/, ''), name: 'Новый критерий',
-      section: (cfg.sections.find((s) => !cfg.criteria.some((x) => x.section === s.id && x.type === 'flag')) || cfg.sections[0] || {}).id || '',
+      id, code: id.replace(/^c/, ''), name: 'Новый критерий', section,
       type: 'binary', weight: 10, na_allowed: false, description: '', na_condition: '', scale: [], guidance: '',
     };
-    if (flagIdx >= 0) cfg.criteria.splice(flagIdx, 0, c); else cfg.criteria.push(c);
+    if (at >= 0) cfg.criteria.splice(at + 1, 0, c);
+    else {
+      const flagIdx = cfg.criteria.findIndex((x) => x.type === 'flag');
+      if (flagIdx >= 0) cfg.criteria.splice(flagIdx, 0, c); else cfg.criteria.push(c);
+    }
     state.expanded.add(id);
+    state.fresh.add(id);
     renderCriteria();
     renderSections();
     onChange();
@@ -404,6 +590,7 @@ export async function mount(root, { query, ctx }) {
       return;
     }
     cfg.criteria.forEach((c, i) => critRows(c, i).forEach((r) => critBody.append(r)));
+    paintIssues();
   }
 
   function shareText(c) {
@@ -416,13 +603,13 @@ export async function mount(root, { query, ctx }) {
     const cfg = state.cfg;
     const open = state.expanded.has(c.id);
     const cells = {
-      code: h('td', { class: 'strong' }),
-      name: h('td', { class: 'wrap' }),
-      section: h('td', { class: 'clip', style: { maxWidth: '124px' }, dataset: { sectionCell: c.section } }),
-      type: h('td', { class: 'nowrap' }),
-      weight: h('td', { class: 'num cell-input' }),
-      share: h('td', { class: 'num t-2' }),
-      na: h('td'),
+      code: h('td', { class: 'strong k-code' }),
+      name: h('td', { class: 'wrap k-name' }),
+      section: h('td', { class: 'clip k-sec k-meta', style: { maxWidth: '124px' }, dataset: { sectionCell: c.section } }),
+      type: h('td', { class: 'nowrap k-type k-meta' }),
+      weight: h('td', { class: 'num cell-input k-weight', 'data-label': 'Вес' }),
+      share: h('td', { class: 'num t-2 k-share' }),
+      na: h('td', { class: 'k-na' }),
     };
     // вес правится прямо в строке таблицы; поле в раскрытой форме и строка синхронизированы
     const weightIn = editable && c.type !== 'flag'
@@ -445,6 +632,7 @@ export async function mount(root, { query, ctx }) {
         if (document.activeElement !== weightIn) weightIn.value = String(Number(c.weight) || 0);
       } else cells.weight.textContent = c.type === 'flag' ? '' : fmt.n2(Number(c.weight) || 0);
       cells.na.textContent = c.na_allowed && c.type !== 'flag' ? 'Да' : '';
+      cells.na.dataset.label = cells.na.textContent ? 'Н/П' : '';
       for (const el of critBody.querySelectorAll('[data-share]')) {
         const cc = cfg.criteria.find((x) => x.id === el.dataset.share);
         if (cc) el.textContent = shareText(cc);
@@ -483,7 +671,7 @@ export async function mount(root, { query, ctx }) {
     };
     renderTools();
 
-    const chev = h('td', null, icon('chevronDown', 16, 'chev'));
+    const chev = h('td', { class: 'k-chev' }, icon('chevronDown', 16, 'chev'));
     const row = h('tr', {
       class: ['is-link', open && 'is-open'], tabindex: 0, 'aria-expanded': String(open), dataset: { row: c.id },
       onclick: (e) => { if (!e.target.closest('button, input')) toggle(); },
@@ -503,19 +691,26 @@ export async function mount(root, { query, ctx }) {
   function editForm(c, changed) {
     const cfg = state.cfg;
     const dis = !editable;
+    const markTouched = (e) => {
+      const f = e.target && e.target.dataset && e.target.dataset.f;
+      if (!f || !state.fresh.has(c.id) || state.touched.has(`${c.id}:${f}`)) return;
+      state.touched.add(`${c.id}:${f}`);
+      paintIssues();
+    };
+    const err = (key) => h('span', { class: 'field__error', dataset: { err: key }, hidden: true, role: 'alert' });
     const inp = (key, props = {}) => {
       const el = h('input', { class: 'input', value: c[key] ?? '', dataset: { f: key }, disabled: dis, ...props });
       el.addEventListener('input', () => { c[key] = props.type === 'number' ? (el.value === '' ? 0 : Number(el.value)) : el.value; changed(); });
       return el;
     };
     const area = (key, rows, props = {}) => {
-      const el = h('textarea', { class: 'input', rows, value: c[key] ?? '', disabled: dis, ...props });
+      const el = h('textarea', { class: 'input', rows, value: c[key] ?? '', disabled: dis, dataset: { f: key }, ...props });
       el.addEventListener('input', () => { c[key] = el.value; changed(); });
       return el;
     };
-    const sectionSel = select([{ value: '', label: 'Без секции' }, ...cfg.sections.map((s) => ({ value: s.id, label: s.name || s.id }))], c.section, { 'data-section-select': '1', disabled: dis });
+    const sectionSel = select([{ value: '', label: 'Без секции' }, ...cfg.sections.map((s) => ({ value: s.id, label: s.name || s.id }))], c.section, { 'data-section-select': '1', 'data-f': 'section', disabled: dis });
     sectionSel.addEventListener('change', () => { c.section = sectionSel.value; renderSections(); changed(); });
-    const typeSel = select([{ value: 'binary', label: 'Да/Нет' }, { value: 'scale', label: 'Шкала' }, { value: 'flag', label: 'Флаг без баллов' }], c.type, { disabled: dis });
+    const typeSel = select([{ value: 'binary', label: 'Да/Нет' }, { value: 'scale', label: 'Шкала' }, { value: 'flag', label: 'Флаг без баллов' }], c.type, { disabled: dis, 'data-f': 'type' });
     typeSel.addEventListener('change', () => {
       c.type = typeSel.value;
       if (c.type === 'flag') { c.weight = 0; c.na_allowed = false; }
@@ -530,20 +725,22 @@ export async function mount(root, { query, ctx }) {
     const weightIn = inp('weight', { type: 'number', min: 0, step: 'any', disabled: dis || c.type === 'flag' });
     const naCb = h('input', { type: 'checkbox', checked: c.na_allowed, disabled: dis || c.type === 'flag' });
     const naBox = h('div', { class: 'span-all', hidden: !c.na_allowed || c.type === 'flag' },
-      field('Условие Н/П', area('na_condition', 2, { placeholder: 'Когда критерий неприменим' })));
+      field('Условие Н/П', area('na_condition', 2, { placeholder: 'Когда критерий неприменим' })), err('na_condition'));
     naCb.addEventListener('change', () => { c.na_allowed = naCb.checked; naBox.hidden = !c.na_allowed; changed(); });
 
-    return h('div', { class: 'fgrid fgrid--3' },
-      field('Код', inp('code')),
-      h('div', { style: { gridColumn: 'span 2' } }, field('Название', inp('name'))),
-      field('Секция', sectionSel),
-      field('Тип', typeSel),
-      field('Вес', weightIn, { hint: c.type === 'flag' ? 'Флаг не даёт баллов' : null }),
+    return h('div', { class: 'fgrid fgrid--3', onfocusout: markTouched },
+      h('div', { class: 'span-all field__error', dataset: { err: 'general' }, hidden: true, role: 'alert' }),
+      h('div', null, field('Код', inp('code')), err('code')),
+      h('div', { style: { gridColumn: 'span 2' } }, field('Название', inp('name')), err('name')),
+      h('div', null, field('Секция', sectionSel), err('section')),
+      h('div', null, field('Тип', typeSel), err('type')),
+      h('div', null, field('Вес', weightIn, { hint: c.type === 'flag' ? 'Флаг не даёт баллов' : null }), err('weight')),
       h('label', { class: ['check-row', 'span-all', (dis || c.type === 'flag') && 'is-disabled'] }, naCb, 'Разрешён Н/П'),
-      h('div', { class: 'span-all' }, field('Правило', area('description', 3, { placeholder: 'Что считается выполнением и что нарушением' }))),
+      h('div', { class: 'span-all' }, field('Правило', area('description', 3, { placeholder: 'Да: что считается выполнением. Нет: что считается нарушением.' })), err('description')),
       naBox,
-      c.type === 'scale' ? h('div', { class: 'span-all' }, scaleEditor(c, changed)) : null,
-      h('div', { class: 'span-all' }, field('Указания для ИИ', area('guidance', 4, { placeholder: 'На какие реплики смотреть, пограничные случаи' }))));
+      c.type === 'scale' ? h('div', { class: 'span-all' }, scaleEditor(c, changed), err('scale')) : null,
+      h('div', { class: 'span-all' }, field('Указания для ИИ', area('guidance', 4, { placeholder: 'На какие реплики смотреть, пограничные случаи' })), err('guidance')),
+      h('div', { class: 'span-all' }, field('Совет оператору', area('coaching', 2, { placeholder: 'Что сказать оператору, если критерий не выполнен. Попадает в лист разбора, ИИ его не видит.' }))));
   }
 
   function scaleEditor(c, changed) {
@@ -552,7 +749,7 @@ export async function mount(root, { query, ctx }) {
       clear(box);
       box.append(h('span', { class: 'field__label' }, 'Ступени шкалы'));
       c.scale.forEach((s, i) => {
-        const v = h('input', { class: 'input', type: 'number', step: 1, min: 0, value: s.value ?? '', disabled: !editable, 'aria-label': 'Баллы ступени' });
+        const v = h('input', { class: 'input', type: 'number', step: 1, min: 0, value: s.value ?? '', disabled: !editable, 'aria-label': `Баллы ступени ${i + 1}`, dataset: { step: i } });
         v.addEventListener('input', () => { s.value = v.value === '' ? '' : Number(v.value); changed(); });
         const l = h('input', { class: 'input', value: s.label || '', disabled: !editable, placeholder: 'Что означает ступень', 'aria-label': 'Описание ступени' });
         l.addEventListener('input', () => { s.label = l.value; changed(); });
@@ -573,7 +770,10 @@ export async function mount(root, { query, ctx }) {
   if (ok) {
     const want = query.id ? Number(query.id) : null;
     const target = state.versions.find((v) => v.id === want) || state.versions.find((v) => v.is_active) || state.versions[0];
-    if (target) await openVersion(target.id);
+    if (target) {
+      await openVersion(target.id);
+      if (query.new && addBtn) { addBtn.focus(); toast('Правки сохранятся как новая версия. Прежние оценки не изменятся.', 'info'); }
+    }
     else {
       try {
         const r = await api.defaultChecklist();

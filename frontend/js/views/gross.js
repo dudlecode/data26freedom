@@ -5,55 +5,32 @@
 import { api } from '../api.js';
 import {
   h, clear, fmt, prefs, emptyState, errorState, skeleton, pageHeader, linkifyTurns, fraction,
-  dotted, channelLabel, nDialogs, plural, SPEAKERS, LANG_LABELS, saveNavList, button,
+  dotted, channelLabel, nDialogs, plural, SPEAKERS, LANG_LABELS, saveNavList, button, segmented,
 } from '../ui.js';
 
-const TYPES = [
-  { id: 'insult', label: 'Оскорбление клиента', mark: /вид\s*\(а\)/i, rx: /оскорб|униж|насмеш|издев|хамств/i },
-  { id: 'paid', label: 'Услуга в обход компании', mark: /вид\s*\(б\)/i, rx: /обход|лично|частн|платн/i },
-  { id: 'disclosure', label: 'Раскрытие конфиденциальной информации', mark: /вид\s*\(в\)/i, rx: /конфиденц|раскры|идентификац/i },
-];
-const FALLBACK = { id: 'other', label: 'Грубое нарушение' };
+export { violationType, reasonBody } from '../violations.js';
+import { violationType, reasonBody, TYPES, FALLBACK } from '../violations.js';
 
-/** Вид нарушения по тексту обоснования: сначала явная пометка «вид (а/б/в)», затем ключевые слова. */
-export function violationType(reasoning) {
-  const s = String(reasoning || '');
-  return TYPES.find((t) => t.mark.test(s)) || TYPES.find((t) => t.rx.test(s)) || FALLBACK;
-}
-
-/**
- * Обоснование без повтора заголовка: убирает формулу «Грубые ошибки: Да, вид (б): <вид нарушения>.»,
- * если после неё есть собственно объяснение. Полный текст остаётся в карточке диалога.
- */
-export function reasonBody(reasoning, type) {
-  const src = String(reasoning || '').trim();
-  let r = src.replace(/^\s*Грубые ошибки\s*:\s*Да[,.:]?\s*(?:выявлен\s+)?/i, '');
-  r = r.replace(/^вид\s*\([абв]\)\s*:\s*/i, '');
-  const cut = /[.!?]\s+(?=[А-ЯЁA-Z«TТ])/.exec(r);
-  if (cut && type && type.rx && type.rx.test(r.slice(0, cut.index))) {
-    const rest = r.slice(cut.index + cut[0].length).trim();
-    if (rest) r = rest;
-  }
-  r = r.trim();
-  if (!r) return src;
-  return r.charAt(0).toUpperCase() + r.slice(1);
-}
-
-export async function mount(root, { ctx }) {
+export async function mount(root, { ctx, query = {} }) {
   ctx.setTitle('Грубые ошибки');
   let destroyed = false;
   let group = prefs.get('gross.group', '');
-  let tab = 'all';
+  let tab = query.tab || 'all';
+  let lang = query.lang || '';
+  let channel = query.channel || '';
+  let langs = [];
+  let chans = [];
   let items = [];
   let totalDialogs = null;
   let groups = [];
 
   const meta = h('span', null, 'Загрузка');
   const groupSel = h('select', { class: 'input input--sm', 'aria-label': 'Группа', onchange: () => { group = groupSel.value; prefs.set('gross.group', group); load(); } });
+  const filtersBox = h('div', { class: 'ov__filters' });
   const tabs = h('div', { class: 'tabs', role: 'tablist', 'aria-label': 'Вид нарушения' });
   const box = h('div', { class: 'glist-wrap' }, skeleton(8));
   root.append(
-    pageHeader({ title: 'Грубые ошибки', meta, actions: [groupSel] }),
+    pageHeader({ title: 'Грубые ошибки', meta, actions: [filtersBox, groupSel] }),
     h('div', { class: 'content' }, tabs, box));
 
   function renderGroups() {
@@ -61,6 +38,25 @@ export async function mount(root, { ctx }) {
     clear(groupSel).append(h('option', { value: '' }, 'Все группы'));
     for (const g of list) groupSel.append(h('option', { value: g, selected: g === group }, `Группа ${g}`));
     groupSel.value = group;
+    groupSel.hidden = list.length < 2 && !group;
+  }
+
+  const syncUrl = () => ctx.replaceQuery({ tab: tab === 'all' ? '' : tab, lang, channel });
+
+  /** Язык и канал как на Обзоре: сервер фильтрует /api/gross-errors теми же параметрами. */
+  function renderFilters() {
+    clear(filtersBox);
+    const ORDER = ['RU', 'KZ', 'EN'];
+    const ls = [...new Set([...langs, lang].filter(Boolean))].sort((a, b) => ((ORDER.indexOf(a) + 9) % 9) - ((ORDER.indexOf(b) + 9) % 9));
+    if (ls.length > 1 || lang) {
+      filtersBox.append(segmented([{ value: '', label: 'Все' }, ...ls.map((l) => ({ value: l, label: l }))], lang,
+        (v) => { lang = v; syncUrl(); load(); }, { label: 'Язык' }));
+    }
+    const cs = [...new Set([...chans, channel].filter(Boolean))];
+    if (cs.length > 1 || channel) {
+      filtersBox.append(segmented([{ value: '', label: 'Все каналы' }, ...cs.map((c) => ({ value: c, label: channelLabel(c) === 'Звонок' ? 'Звонки' : 'Чаты' }))], channel,
+        (v) => { channel = v; syncUrl(); load(); }, { label: 'Канал' }));
+    }
   }
 
   function typed() {
@@ -69,7 +65,7 @@ export async function mount(root, { ctx }) {
 
   function renderMeta() {
     clear(meta).append(...dotted([
-      totalDialogs !== null ? `${nDialogs(items.length)} из ${fmt.int(totalDialogs)}` : nDialogs(items.length),
+      totalDialogs !== null ? `${nDialogs(items.length)} из ${fmt.int(totalDialogs)} оценённых` : nDialogs(items.length),
       'последняя оценка с учётом апелляций',
     ]));
   }
@@ -84,7 +80,7 @@ export async function mount(root, { ctx }) {
     for (const d of defs) {
       tabs.append(h('button', {
         type: 'button', role: 'tab', class: 'tab', 'aria-selected': String(d.id === tab), disabled: d.id !== 'all' && !d.n,
-        onclick: () => { tab = d.id; renderTabs(rows); renderList(rows); },
+        onclick: () => { tab = d.id; syncUrl(); renderTabs(rows); renderList(rows); },
       }, d.label, h('span', { class: ['count', d.id !== 'all' && d.n && 'count--danger'] }, String(d.n))));
     }
   }
@@ -96,7 +92,7 @@ export async function mount(root, { ctx }) {
   function renderList(rows) {
     clear(box);
     const shown = rows.filter((r) => tab === 'all' || r.types.some((t) => t.id === tab));
-    saveNavList({ ids: shown.map((r) => r.dialog_id), back: '#/gross', label: 'Грубые ошибки' });
+    saveNavList({ ids: shown.map((r) => r.dialog_id), back: location.hash.startsWith('#/gross') ? location.hash : '#/gross', label: 'Грубые ошибки' });
     if (!items.length) {
       box.append(h('div', { class: 'panel' }, emptyState({
         title: 'Грубых ошибок нет',
@@ -132,7 +128,7 @@ export async function mount(root, { ctx }) {
     if (!Number.isFinite(fin)) return h('b', null, 'Н/П');
     const changed = Number.isFinite(it.total) && Math.abs(it.total - fin) > 0.004;
     return h('span', { 'data-tip': changed ? `Исходно ${fmt.n2(it.total)}, после апелляции ${fmt.n2(fin)}` : null },
-      changed ? h('span', { class: 'score__orig' }, `${fmt.n2(it.total)} / `) : null, h('b', null, fmt.n2(fin)));
+      changed ? h('span', { class: 'score__orig' }, `${fmt.n2(it.total)} / `) : null, h('b', null, fmt.n2(fin)), h('span', { class: 't-2' }, ' из 100'));
   }
 
   function violation(it, c, type) {
@@ -157,7 +153,8 @@ export async function mount(root, { ctx }) {
           h('span', null, SPEAKERS[e.speaker] || e.speaker || '')),
         h('blockquote', { class: 'gquote__text' }, e.text)))) : null,
       h('p', { class: 'gviol__foot' }, dotted([
-        `${c.code ? `Критерий ${c.code}` : c.name}`,
+        h('a', { href: cardHref(it, `&crit=${encodeURIComponent(c.criterion_id)}`), 'data-tip': 'Открыть критерий в карточке диалога' }, c.code ? `Критерий ${c.code}` : c.name),
+        it.operator && it.operator !== 'Не указано' ? `оператор ${typeof it.operator === 'string' ? it.operator : it.operator.name}` : null,
         fr ? h('span', { class: full ? null : 't-warn strong', 'data-tip': full ? null : 'Прогоны модели разошлись, решение стоит перепроверить' }, `${fr.k} из ${fr.n} ${plural(fr.n, 'прогона', 'прогонов', 'прогонов')}`) : null,
         c.overridden ? h('span', { class: 't-warn' }, 'значение изменено решением по апелляции') : null,
       ])));
@@ -168,7 +165,16 @@ export async function mount(root, { ctx }) {
     let g;
     let d;
     try {
-      [g, d] = await Promise.all([api.grossErrors(group || undefined), api.dialogs(group ? { group_id: group } : undefined).catch(() => null)]);
+      const f = { language: lang || undefined, channel: channel || undefined };
+      [g, d] = await Promise.all([api.grossErrors(group || undefined, f), api.dialogs({ group_id: group || undefined, ...f }).catch(() => null)]);
+      // варианты фильтров берём из всех диалогов, а не только отфильтрованных, иначе выбранный язык прячет остальные
+      if (!langs.length || !chans.length) {
+        const all = lang || channel ? await api.dialogs(group ? { group_id: group } : undefined).catch(() => null) : d;
+        if (all && all.items) {
+          langs = [...new Set(all.items.map((x) => x.language).filter(Boolean))];
+          chans = [...new Set(all.items.map((x) => x.channel).filter(Boolean))];
+        }
+      }
     } catch (e) {
       if (destroyed) return;
       clear(box).append(h('div', { class: 'panel' }, errorState(e, load)));
@@ -177,9 +183,11 @@ export async function mount(root, { ctx }) {
     }
     if (destroyed) return;
     items = (g.items || []).slice().sort((a, b) => a.dialog_id.localeCompare(b.dialog_id, 'ru', { numeric: true }));
-    totalDialogs = d && d.items ? d.items.length : null;
+    // знаменатель как на Обзоре: оценённые диалоги (неоценённый ручной импорт не в счёт)
+    totalDialogs = d && d.items ? d.items.filter((x) => x.latest && x.latest.status === 'done').length : null;
     groups = (d && d.groups) || groups;
     renderGroups();
+    renderFilters();
     renderMeta();
     const rows = typed();
     renderTabs(rows);

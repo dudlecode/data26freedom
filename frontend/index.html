@@ -2,7 +2,8 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0F2A21">
   <title>Контроль качества диалогов</title>
   <link rel="icon" type="image/svg+xml" href="assets/freedom-mark.svg">
   <link rel="stylesheet" href="css/app.css">
@@ -15,19 +16,31 @@
   <div id="shell" hidden>
     <aside class="sb" aria-label="Навигация">
       <div class="sb__head">
-        <a class="sb__logo" href="#/dialogs" aria-label="Freedom Broker, к списку диалогов">
-          <img src="assets/freedom-logo-light.svg" alt="Freedom Broker" width="98" height="22">
+        <a class="sb__logo" href="#/overview" aria-label="Freedom Broker, на главный экран">
+          <img class="sb__logo-full" src="assets/freedom-logo-light.svg" alt="Freedom Broker" width="98" height="22">
+          <img class="sb__logo-mark" src="assets/freedom-mark.svg" alt="" width="20" height="23">
         </a>
-        <div class="sb__product">Контроль качества диалогов</div>
+        <button type="button" class="sb__collapse" id="sb-collapse" aria-label="Свернуть панель" data-tip="Свернуть панель"></button>
       </div>
+      <button type="button" class="sb__search" id="sb-search" aria-haspopup="dialog"></button>
       <nav class="sb__nav" id="nav"></nav>
       <div class="sb__user" id="user-box"></div>
     </aside>
+    <header class="tb" id="topbar">
+      <a class="tb__logo" href="#/overview" aria-label="Freedom Broker, на главный экран">
+        <img src="assets/freedom-mark.svg" alt="" width="20" height="23">
+      </a>
+      <span class="tb__title" id="tb-title" aria-hidden="true"></span>
+      <button type="button" class="tb__btn" id="tb-search" aria-label="Поиск диалогов, операторов и команд" aria-haspopup="dialog"></button>
+      <div class="tb__user" id="tb-user"></div>
+    </header>
+    <div class="sb-scrim" id="sb-scrim" hidden></div>
     <main class="main" id="main">
       <div class="sysbar sysbar--danger" id="offline-bar" role="alert" hidden>Сервер CQA не отвечает. Проверьте, что backend запущен, и обновите страницу.</div>
       <div class="sysbar sysbar--warn" id="key-bar" hidden><span>Ключ Claude API не задан, оценка через Claude недоступна.</span><a href="#/settings">Настройки</a></div>
       <div id="view" class="view" tabindex="-1"></div>
     </main>
+    <nav class="tabbar" id="tabbar" aria-label="Разделы"></nav>
   </div>
 
   <div id="login-root" hidden></div>

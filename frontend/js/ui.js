@@ -2,6 +2,7 @@
 // всплывающие меню, форматтеры и значения критериев. Данные выводятся только через textContent.
 
 import { icon } from './icons.js';
+import { getUser } from './session.js';
 
 export { icon };
 
@@ -168,16 +169,25 @@ export function toastError(e, prefix) {
 
 export function confirmDialog({ title, message, confirmLabel = 'Подтвердить', cancelLabel = 'Отмена', danger = false } = {}) {
   return new Promise((resolve) => {
-    let result = false;
-    const ok = button(confirmLabel, { kind: danger ? 'danger' : 'primary', onClick: () => { result = true; dlg.close(); } });
+    // кнопки завершают сразу, не дожидаясь события close: в фоновой вкладке оно может запаздывать
+    let done = false;
+    const finish = (v) => {
+      if (done) return;
+      done = true;
+      if (dlg.open) dlg.close();
+      dlg.remove();
+      resolve(v);
+    };
+    const ok = button(confirmLabel, { kind: danger ? 'danger' : 'primary', onClick: () => finish(true) });
     const dlg = h('dialog', { class: 'dlg', 'aria-labelledby': 'dlg-title' },
       h('div', { class: 'dlg__body' },
         h('h2', { class: 'dlg__title', id: 'dlg-title' }, title || ''),
         message ? h('p', { class: 'dlg__text' }, message) : null),
       h('div', { class: 'dlg__foot' },
-        button(cancelLabel, { kind: 'secondary', onClick: () => dlg.close() }),
+        button(cancelLabel, { kind: 'secondary', onClick: () => finish(false) }),
         ok));
-    dlg.addEventListener('close', () => { dlg.remove(); resolve(result); });
+    dlg.addEventListener('cancel', (e) => { e.preventDefault(); finish(false); });
+    dlg.addEventListener('close', () => finish(false));
     document.body.append(dlg);
     dlg.showModal();
     ok.focus();
@@ -242,6 +252,55 @@ export function popover(anchor, content, { cls = '', align = 'end', onClose } = 
   return api;
 }
 
+/* ---------- телефон: медиазапрос и нижний лист ---------- */
+
+const mq = (q) => (typeof matchMedia === 'function' ? matchMedia(q) : { matches: false, addEventListener() {}, removeEventListener() {} });
+/** Ширина телефона: оболочка с верхней панелью и нижними вкладками, списки карточками. */
+export const phoneMQ = mq('(max-width: 767px)');
+export const isPhone = () => phoneMQ.matches;
+/** Устройство без наведения: подсказки по касанию, без клавиатурных подсказок. */
+export const isTouch = () => mq('(hover: none)').matches;
+
+let openSheet = null;
+
+export function closeSheet() {
+  if (openSheet) openSheet.close();
+}
+
+/**
+ * Нижний лист для телефона: заголовок, крестик, содержимое; закрывается по фону и Esc.
+ * sheet({ title, content, onClose, cls }) -> { el, close }
+ */
+export function sheet({ title, content, onClose, cls } = {}) {
+  closePopover();
+  closeSheet();
+  const lastFocus = document.activeElement;
+  const closeBtn = h('button', { type: 'button', class: 'icon-btn bsheet__x', 'aria-label': 'Закрыть', onclick: () => api.close() }, icon('close', 16));
+  const panel = h('div', { class: ['bsheet', cls], role: 'dialog', 'aria-modal': 'true', 'aria-label': title || null },
+    h('div', { class: 'bsheet__head' }, h('h2', { class: 'bsheet__title' }, title || ''), closeBtn),
+    h('div', { class: 'bsheet__body' }, content));
+  const backdrop = h('div', { class: 'bsheet-backdrop', onclick: (e) => { if (e.target === backdrop) api.close(); } }, panel);
+  const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); api.close(); } };
+  const api = {
+    el: panel,
+    close() {
+      if (!backdrop.isConnected) return;
+      document.removeEventListener('keydown', onKey, true);
+      backdrop.remove();
+      document.body.classList.remove('has-sheet');
+      if (openSheet === api) openSheet = null;
+      if (onClose) onClose();
+      if (lastFocus && lastFocus.isConnected) lastFocus.focus({ preventScroll: true });
+    },
+  };
+  document.addEventListener('keydown', onKey, true);
+  document.body.append(backdrop);
+  document.body.classList.add('has-sheet');
+  openSheet = api;
+  setTimeout(() => { if (backdrop.isConnected) closeBtn.focus({ preventScroll: true }); }, 0);
+  return api;
+}
+
 /** Меню действий: items [{label, icon, onClick}] */
 export function menu(anchor, items) {
   const list = h('div', { role: 'menu' }, items.map((it) => h('button', {
@@ -300,9 +359,55 @@ function scheduleTip(target) {
   tipTimer = setTimeout(() => { if (tipTarget === target) showTip(target, false); }, TIP_DELAY);
 }
 
+/* касание: долгое нажатие показывает подсказку у любого элемента, короткое у неинтерактивного */
+let lastTouch = 0;
+let pressTimer = 0;
+let pressShown = null;
+let pressStart = null;
+let tapHide = 0;
+const INTERACTIVE = 'a, button, input, select, textarea, label, summary, [role="button"], [role="tab"], tr.is-link, .hm tbody tr, .gitem';
+
+function touchTip(target) {
+  clearTimeout(tapHide);
+  showTip(target, true);
+  tapHide = setTimeout(hideTip, 3200);
+}
+
+function installTouchTips() {
+  document.addEventListener('touchstart', (e) => {
+    lastTouch = Date.now();
+    clearTimeout(pressTimer);
+    pressShown = null;
+    const t = e.target.closest && e.target.closest('[data-tip]');
+    if (tipTarget && t !== tipTarget) hideTip();
+    if (!t || t.closest('[data-press]') || e.touches.length > 1) { pressStart = null; return; }
+    pressStart = { t, x: e.touches[0].clientX, y: e.touches[0].clientY };
+    pressTimer = setTimeout(() => { pressShown = t; touchTip(t); }, 450);
+  }, { passive: true });
+  document.addEventListener('touchmove', (e) => {
+    if (!pressStart) return;
+    const p = e.touches[0];
+    if (Math.abs(p.clientX - pressStart.x) > 10 || Math.abs(p.clientY - pressStart.y) > 10) { clearTimeout(pressTimer); pressStart = null; }
+  }, { passive: true });
+  document.addEventListener('touchend', (e) => {
+    lastTouch = Date.now();
+    clearTimeout(pressTimer);
+    const start = pressStart;
+    pressStart = null;
+    if (pressShown) { if (e.cancelable) e.preventDefault(); return; } // долгое нажатие: без клика
+    if (start && !start.t.closest(INTERACTIVE)) {
+      if (tipTarget === start.t && tipEl && tipEl.classList.contains('is-in')) hideTip(); else touchTip(start.t);
+    }
+  });
+  document.addEventListener('contextmenu', (e) => { if (pressShown && Date.now() - lastTouch < 1500) e.preventDefault(); });
+  window.addEventListener('hashchange', hideTip);
+}
+
 export function installTooltips() {
+  installTouchTips();
   // у disabled-кнопки нет событий мыши, поэтому подсказку роли вешаем на обёртку (см. gate)
   document.addEventListener('mouseover', (e) => {
+    if (Date.now() - lastTouch < 1000) return; // мышиные события после касания
     const t = e.target.closest && e.target.closest('[data-tip]');
     if (t && t !== tipTarget) scheduleTip(t);
     else if (!t && tipTarget) hideTip();
@@ -313,7 +418,7 @@ export function installTooltips() {
   });
   document.addEventListener('focusout', hideTip);
   window.addEventListener('scroll', hideTip, true);
-  document.addEventListener('mousedown', hideTip, true);
+  document.addEventListener('mousedown', () => { if (Date.now() - lastTouch > 1000) hideTip(); }, true);
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideTip(); }, true);
 }
 
@@ -356,7 +461,7 @@ export function keysBlocked(e) {
   if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return true;
   const t = e.target;
   if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return true;
-  return !!document.querySelector('dialog[open], .pop');
+  return !!document.querySelector('dialog[open], .pop, .palette, .bsheet');
 }
 
 /**
@@ -391,12 +496,38 @@ export function loadNavList() {
   } catch { return null; }
 }
 
+/** Раздел сайдбара, к которому относится путь экрана-списка ('/gross?tab=x', '#/overview'), или null. */
+export function navOrigin(path) {
+  const p = String(path || '').replace(/^#/, '').split('?')[0];
+  if (p.startsWith('/gross')) return 'gross';
+  if (p.startsWith('/overview') || p.startsWith('/operator')) return 'overview';
+  if (p.startsWith('/appeal')) return 'appeals';
+  if (p.startsWith('/calibration')) return 'calibration';
+  if (p.startsWith('/dialogs')) return 'dialogs';
+  return null;
+}
+
+/**
+ * Список, из которого открыта карточка диалога, или null. Список засчитывается, только если в нём
+ * есть этот диалог и пользователь пришёл с этого экрана (или листает соседей, или перезагрузил
+ * страницу): иначе подсветка и крошка показывали бы давно закрытый раздел.
+ */
+export function cardList(dialogId, prevPath) {
+  const nav = loadNavList();
+  if (!nav || !nav.ids.includes(dialogId)) return null;
+  const prev = String(prevPath || '');
+  if (!prev || prev.startsWith('/dialog/')) return nav;
+  return navOrigin(prev) && navOrigin(prev) === navOrigin(nav.back) ? nav : null;
+}
+
 /* ---------- форматтеры ---------- */
 
 const nf2 = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const nf0 = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 });
 const nf1 = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
-const nf3 = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
+const dtfTime = new Intl.DateTimeFormat('ru-RU', { hour: '2-digit', minute: '2-digit' });
+const dtfDay = new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit' });
+const dtfDayY = new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
 const dtf = new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 const dtfShort = new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 
@@ -410,9 +541,42 @@ export const fmt = {
   share: (x) => (isNum(x) ? `${nf1.format(x <= 1 ? x * 100 : x)} %` : ''),
   money: (x) => {
     if (!isNum(x)) return '';
-    if (x === 0) return '$0,00';
-    if (x < 1) return `$${nf3.format(x)}`;
+    if (x > 0 && x < 0.005) return '<$0,01';
     return `$${nf2.format(x)}`;
+  },
+  /** Сегодня «17:34», в этом году «07.11», иначе «07.11.2025». */
+  when: (s) => {
+    if (!s) return '';
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) return String(s);
+    const now = new Date();
+    if (d.toDateString() === now.toDateString()) return dtfTime.format(d);
+    return d.getFullYear() === now.getFullYear() ? dtfDay.format(d) : dtfDayY.format(d);
+  },
+  /** «5 мин назад», «3 ч назад», «вчера», «4 дня назад». */
+  ago: (s) => {
+    if (!s) return '';
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) return '';
+    const m = Math.max(0, Math.round((Date.now() - d.getTime()) / 60000));
+    if (m < 1) return 'только что';
+    if (m < 60) return `${m} мин назад`;
+    const hh = Math.round(m / 60);
+    if (hh < 24) return `${hh} ч назад`;
+    const dd = Math.round(hh / 24);
+    return dd === 1 ? 'вчера' : `${dd} ${plural(dd, 'день', 'дня', 'дней')} назад`;
+  },
+  /** Сколько ждёт: «40 мин», «3 ч», «2 дня». */
+  waited: (s) => {
+    if (!s) return '';
+    const d = new Date(s);
+    if (Number.isNaN(d.getTime())) return '';
+    const m = Math.max(1, Math.round((Date.now() - d.getTime()) / 60000));
+    if (m < 60) return `${m} мин`;
+    const hh = Math.round(m / 60);
+    if (hh < 48) return `${hh} ч`;
+    const dd = Math.round(hh / 24);
+    return `${dd} ${plural(dd, 'день', 'дня', 'дней')}`;
   },
   date: (s) => {
     if (!s) return '';
@@ -434,10 +598,11 @@ export const fmt = {
   },
   seconds: (s) => {
     if (!isNum(s)) return '';
-    if (s < 60) return `${Math.round(s)} с`;
+    // неразрывные пробелы: «39 с» не рвётся между строками
+    if (s < 60) return `${Math.round(s)}\u00A0с`;
     const m = Math.floor(s / 60);
     const r = Math.round(s % 60);
-    return r ? `${m} мин ${r} с` : `${m} мин`;
+    return r ? `${m}\u00A0мин ${r}\u00A0с` : `${m}\u00A0мин`;
   },
   tokens: (x) => (isNum(x) ? nf0.format(x) : ''),
 };
@@ -471,20 +636,86 @@ export function initials(name) {
 
 /* ---------- стоимость ---------- */
 
-export const COST_PER_RUN = { 'claude-opus-5-5': 0.08, 'claude-sonnet-5-5': 0.04, 'claude-haiku-5-5': 0.002 };
+// Оценка стоимости приходит с сервера (GET /api/evaluations/estimate): средняя фактическая
+// стоимость прошлых оценок этой модели с учётом кэша промпта. Без сервера цифры нет.
 
-export function estimateCost(settings, n = 1) {
+/** { votes, n, cost, perDialog, local, basis } или null, если сервер не ответил. */
+export async function fetchEstimate(api, settings, n = 1) {
   const st = settings || {};
-  const votes = Number(st.votes) || 3;
-  if (st.provider === 'openai_compat') return { votes, cost: 0, local: true, model: st.local_model || 'локальная модель' };
-  const per = COST_PER_RUN[st.model] ?? 0.08;
-  return { votes, cost: n * votes * per, local: false, model: st.model || '' };
+  const votes = Math.max(1, Number(st.votes) || 1);
+  if (st.provider === 'openai_compat') return { votes, n, cost: 0, perDialog: 0, local: true, basis: { source: 'local' } };
+  try {
+    const r = await api.estimate({ dialogs: n, votes, model: st.model || undefined, provider: st.provider || undefined });
+    const local = r.provider === 'openai_compat';
+    const per = Number(r.per_dialog_usd) || 0;
+    return { votes: r.votes || votes, n, perDialog: per, cost: per * n, local, basis: r.basis || {} };
+  } catch {
+    return null;
+  }
 }
 
 export function costText(est) {
-  return est.local
-    ? `${nRuns(est.votes)} на диалог, локальная модель без затрат на API`
-    : `${nRuns(est.votes)} на диалог, около ${fmt.money(est.cost)}`;
+  if (!est) return '';
+  if (est.local) return `${nRuns(est.votes)} на диалог, локальная модель без затрат на API`;
+  return est.n > 1
+    ? `${nRuns(est.votes)} на диалог, около ${fmt.money(est.cost)} за все`
+    : `${nRuns(est.votes)}, около ${fmt.money(est.cost)}`;
+}
+
+/* ---------- файлы и буфер обмена ---------- */
+
+/** Скачивание через ссылку a[download]: без всплывающего окна (в iframe Dynamics попапы блокируются). */
+export function download(url) {
+  const a = h('a', { href: url, download: '', style: { display: 'none' } });
+  document.body.append(a);
+  a.click();
+  setTimeout(() => a.parentNode && a.parentNode.removeChild(a), 0);
+}
+
+export async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    const ta = h('textarea', { style: { position: 'fixed', opacity: '0', top: '0', left: '0' } });
+    ta.value = text;
+    document.body.append(ta);
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch { ok = false; }
+    ta.parentNode.removeChild(ta);
+    return ok;
+  }
+}
+
+/** Для поиска: регистр и ё не важны. */
+// Форма для поиска: регистр, ё = е, казахские буквы как русские двойники («мурат» находит «Мұрат»).
+// Замена один к одному, поэтому позиции подсветки совпадений не сдвигаются.
+const KZ_FOLD = { ә: 'а', ғ: 'г', қ: 'к', ң: 'н', ө: 'о', ұ: 'у', ү: 'у', һ: 'х', і: 'и' };
+export const fold = (s) => String(s || '').toLocaleLowerCase('ru-RU').replace(/ё/g, 'е').replace(/[әғқңөұүһі]/g, (c) => KZ_FOLD[c]);
+
+/**
+ * Ошибка оценки для человека: { summary, detail }. Сервер пишет «Коротко. Подробности: текст API»;
+ * старые записи с JSON-ответом API разбираются до сообщения модели.
+ */
+export function humanError(raw) {
+  const text = String(raw || '').trim();
+  if (!text) return { summary: 'Причина не указана.', detail: '' };
+  let summary = text;
+  let detail = '';
+  const i = text.indexOf(' Подробности: ');
+  if (i > 0) {
+    summary = text.slice(0, i);
+    detail = text.slice(i + 14);
+  } else {
+    const m = text.match(/^Ошибка Claude API (\d{3})\b[\s\S]*?'message':\s*'([^']+)'/);
+    if (m) { summary = `Claude API отклонил запрос (код ${m[1]}).`; detail = m[2]; }
+  }
+  if (/grammar is too large/i.test(detail || text)) {
+    summary = 'Модель не приняла схему ответа для чек-листа с таким числом критериев. Повторите оценку: сервер отправит его в компактной схеме.';
+  }
+  if (!/[.!?]$/.test(summary)) summary += '.';
+  return { summary, detail };
 }
 
 /* ---------- каналы, роли, значения ---------- */
@@ -594,6 +825,28 @@ export function bar(pct, tone, { grow = false } = {}) {
   return h('div', { class: ['bar', tone && `bar--${tone}`, grow && 'bar--grow'], role: 'presentation' }, h('span', { style: { width: `${p}%` } }));
 }
 
+/** Обоснование без повтора «Название: Значение.» в начале: значение уже стоит рядом бейджем. */
+/** Убирает служебную пометку модели «вид (а)», «Вид (в):» из текста для показа (вид нарушения виден отдельно). */
+export function stripKind(text) {
+  let s = String(text || '');
+  s = s.replace(/^\s*(?:выявлен[оа]?\s+)?вид\s*\(?[абв]\)\s*[:.,]?\s*/i, '');
+  s = s.replace(/\s*\(\s*вид\s*[абв]\s*\)/gi, '');
+  s = s.replace(/,?\s*вид\s*\([абв]\)\s*:?/gi, '');
+  s = s.trim();
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : String(text || '');
+}
+
+export function stripLead(text, c) {
+  const s = stripKind(text);
+  const m = /^\s*([^:\n]{2,60}):\s*(Да|Нет|Н\/П|N\/A|NA|\d+)(?:\s*из\s*\d+)?[.,;]?\s+/i.exec(s);
+  if (!m) return s;
+  const name = m[1].trim().toLowerCase();
+  const cname = String((c && c.name) || '').toLowerCase();
+  if (cname && !cname.startsWith(name.slice(0, 6)) && !name.startsWith(cname.slice(0, 6))) return s;
+  const rest = stripKind(s.slice(m[0].length));
+  return rest ? rest.charAt(0).toUpperCase() + rest.slice(1) : s;
+}
+
 /* ---------- ссылки на реплики в тексте ---------- */
 
 const TURN_RX = /(?<![\p{L}\d])[TТ]\s?(\d{1,4})(?:\s*(?:[\u2013\u2014-]|\.\.)\s*[TТ]?\s?(\d{1,4}))?/gu;
@@ -655,6 +908,14 @@ export function emptyState({ title, text, actions }) {
 }
 
 export function errorState(err, onRetry) {
+  // 403 и 404 повтором не исправить: вместо «Повторить» ведём к своему списку
+  const status = err && err.status;
+  if (status === 403 || status === 404) {
+    return h('div', { class: 'empty' },
+      h('h3', { class: 'empty__title' }, status === 403 ? 'Нет доступа' : 'Не найдено'),
+      h('p', { class: 'empty__text' }, (err && err.message) || ''),
+      h('div', { class: 'empty__actions' }, h('a', { class: 'btn btn--secondary', href: '#/dialogs' }, h('span', null, (getUser() || {}).role === 'operator' ? 'Мои диалоги' : 'К списку диалогов'))));
+  }
   return h('div', { class: 'empty empty--error' },
     h('h3', { class: 'empty__title' }, 'Данные не загрузились'),
     h('p', { class: 'empty__text' }, (err && err.message) || String(err)),

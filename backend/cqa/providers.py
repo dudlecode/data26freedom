@@ -26,6 +26,23 @@ class ProviderError(RuntimeError):
     pass
 
 
+class _GrammarTooLarge(Exception):
+    """The API could not compile the strict output schema."""
+
+
+def api_message(e: Exception) -> str:
+    """The human part of an Anthropic API error, without the JSON envelope and request id."""
+    body = getattr(e, "body", None)
+    if isinstance(body, dict):
+        inner = body.get("error") if isinstance(body.get("error"), dict) else body
+        msg = inner.get("message") if isinstance(inner, dict) else None
+        if msg:
+            return str(msg)[:400]
+    text = str(getattr(e, "message", "") or e)
+    m = re.search(r"'message':\s*'([^']+)'", text)
+    return (m.group(1) if m else text)[:400]
+
+
 @dataclass
 class RunResult:
     data: dict[str, Any]
@@ -84,19 +101,19 @@ class AnthropicProvider:
         )
         t0 = time.perf_counter()
         try:
-            resp = await self._create(kwargs)
-        except anthropic.AuthenticationError as e:
-            raise ProviderError("Ключ Claude API не принят (401). Проверьте CQA_ANTHROPIC_API_KEY.") from e
-        except anthropic.PermissionDeniedError as e:
-            raise ProviderError(f"Нет доступа к модели {self.model}: {e.message}") from e
-        except anthropic.NotFoundError as e:
-            raise ProviderError(f"Модель {self.model} не найдена: {e.message}") from e
-        except anthropic.RateLimitError as e:
-            raise ProviderError("Превышен лимит запросов Claude API (429). Уменьшите параллельность.") from e
-        except anthropic.APIStatusError as e:
-            raise ProviderError(f"Ошибка Claude API {e.status_code}: {e.message}") from e
-        except anthropic.APIConnectionError as e:
-            raise ProviderError("Нет соединения с Claude API.") from e
+            resp = await self._call(kwargs)
+        except _GrammarTooLarge:
+            # The strict schema did not compile: ask for the same JSON through the prompt
+            # instead. The evaluator validates and normalizes every value anyway.
+            plain_kwargs = dict(kwargs)
+            plain_kwargs["output_config"] = {"effort": self.effort}
+            plain_kwargs["system"] = [{
+                "type": "text",
+                "text": system + "\n\nВерните только JSON-объект без пояснений и без markdown, строго по схеме:\n"
+                + json.dumps(schema, ensure_ascii=False),
+                "cache_control": {"type": "ephemeral"},
+            }]
+            resp = await self._call(plain_kwargs)
         duration = int((time.perf_counter() - t0) * 1000)
 
         if resp.stop_reason == "refusal":
@@ -121,6 +138,27 @@ class AnthropicProvider:
             cost_usd=config.cost_usd(served_by, usage) or config.cost_usd(self.model, usage),
             provider=self.name,
         )
+
+    async def _call(self, kwargs: dict[str, Any]):
+        try:
+            return await self._create(kwargs)
+        except anthropic.AuthenticationError as e:
+            raise ProviderError("Ключ Claude API не принят (401). Проверьте CQA_ANTHROPIC_API_KEY.") from e
+        except anthropic.PermissionDeniedError as e:
+            raise ProviderError(f"Нет доступа к модели {self.model}. Подробности: {api_message(e)}") from e
+        except anthropic.NotFoundError as e:
+            raise ProviderError(f"Модель {self.model} не найдена. Подробности: {api_message(e)}") from e
+        except anthropic.RateLimitError as e:
+            raise ProviderError("Превышен лимит запросов Claude API (429). Уменьшите параллельность.") from e
+        except anthropic.BadRequestError as e:
+            msg = api_message(e)
+            if "grammar" in msg.lower() and "format" in (kwargs.get("output_config") or {}):
+                raise _GrammarTooLarge(msg) from e
+            raise ProviderError(f"Claude API отклонил запрос (код 400). Подробности: {msg}") from e
+        except anthropic.APIStatusError as e:
+            raise ProviderError(f"Ошибка Claude API (код {e.status_code}). Подробности: {api_message(e)}") from e
+        except anthropic.APIConnectionError as e:
+            raise ProviderError("Нет соединения с Claude API.") from e
 
     async def _create(self, kwargs: dict[str, Any]):
         if self.use_fallbacks:

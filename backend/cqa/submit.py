@@ -29,7 +29,7 @@ def main() -> int:
     ap.add_argument("--group", required=True, help="group_id набора у организаторов (DEV или выданный)")
     ap.add_argument("--set", required=True, choices=["dev", "prod"], help="папка results/dev или results/prod")
     ap.add_argument("--base", default="http://127.0.0.1:8000", help="адрес запущенного сервера CQA")
-    ap.add_argument("--user", default="admin")
+    ap.add_argument("--user", default="supervisor", help="пользователь с правом оценки (супервайзер)")
     ap.add_argument("--password", default=None, help="по умолчанию CQA_DEMO_PASSWORD или freedom2026")
     ap.add_argument("--team", default=os.getenv("CQA_TEAM_NAME"), help="название команды для team_name (по умолчанию CQA_TEAM_NAME из .env)")
     ap.add_argument("--force", action="store_true", help="переоценить даже уже оценённые диалоги")
