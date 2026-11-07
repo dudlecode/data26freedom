@@ -3,46 +3,34 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>CQA — оценка качества диалогов</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230E3B2E'/%3E%3Cpath d='M9 17l4.5 4.5L23 11' stroke='%237FD3A2' stroke-width='3.2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <title>Контроль качества диалогов</title>
+  <link rel="icon" type="image/svg+xml" href="assets/freedom-mark.svg">
   <link rel="stylesheet" href="css/app.css">
   <script src="config.js"></script>
   <script type="module" src="js/app.js"></script>
 </head>
-<body data-role="supervisor">
-  <a class="skip-link" href="#view">Перейти к содержимому</a>
-  <header class="app-header" id="app-header">
-    <div class="app-header__inner">
-      <a class="brand" href="#/dialogs" aria-label="CQA — на главную">
-        <span class="brand__mark" aria-hidden="true">
-          <svg viewBox="0 0 32 32" width="28" height="28"><rect width="32" height="32" rx="7" fill="#1F7A4D"/><path d="M9 17l4.5 4.5L23 11" stroke="#E8F3EC" stroke-width="3.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </span>
-        <span class="brand__text">
-          <span class="brand__name">CQA · Оценка качества диалогов</span>
-          <span class="brand__sub">Freedom Broker</span>
-        </span>
-      </a>
-      <nav class="app-nav" id="app-nav" aria-label="Разделы">
-        <a href="#/dialogs" data-nav="dialogs">Диалоги</a>
-        <a href="#/appeals" data-nav="appeals">Апелляции <span class="nav-badge" id="nav-appeals-badge" hidden>0</span></a>
-        <a href="#/checklists" data-nav="checklists">Чек-листы</a>
-        <a href="#/calibration" data-nav="calibration">Калибровка</a>
-        <a href="#/settings" data-nav="settings">Настройки</a>
-      </nav>
-      <div class="role-switch" role="radiogroup" aria-label="Роль пользователя" id="role-switch">
-        <button type="button" role="radio" data-role-value="supervisor" aria-checked="true">Супервайзер</button>
-        <button type="button" role="radio" data-role-value="reviewer" aria-checked="false">Проверяющий</button>
+<body>
+  <a class="skip-link" href="#view">К содержимому</a>
+
+  <div id="shell" hidden>
+    <aside class="sb" aria-label="Навигация">
+      <div class="sb__head">
+        <a class="sb__logo" href="#/dialogs" aria-label="Freedom Broker, к списку диалогов">
+          <img src="assets/freedom-logo-light.svg" alt="Freedom Broker" width="98" height="22">
+        </a>
+        <div class="sb__product">Контроль качества диалогов</div>
       </div>
-    </div>
-  </header>
-  <div class="key-banner" id="key-banner" hidden>
-    <span>Не задан ключ Claude API — оценка диалогов недоступна.</span>
-    <a href="#/settings">Ввести ключ</a>
+      <nav class="sb__nav" id="nav"></nav>
+      <div class="sb__user" id="user-box"></div>
+    </aside>
+    <main class="main" id="main">
+      <div class="sysbar sysbar--danger" id="offline-bar" role="alert" hidden>Сервер CQA не отвечает. Проверьте, что backend запущен, и обновите страницу.</div>
+      <div class="sysbar sysbar--warn" id="key-bar" hidden><span>Ключ Claude API не задан, оценка через Claude недоступна.</span><a href="#/settings">Настройки</a></div>
+      <div id="view" class="view" tabindex="-1"></div>
+    </main>
   </div>
-  <div class="offline-banner" id="offline-banner" hidden>
-    <span>Сервер CQA не отвечает. Проверьте, что backend запущен, и обновите страницу.</span>
-  </div>
-  <main class="app-main" id="view" tabindex="-1"></main>
-  <div class="toasts" id="toasts" aria-live="polite" aria-atomic="false"></div>
+
+  <div id="login-root" hidden></div>
+  <div class="toasts" id="toasts" aria-live="polite"></div>
 </body>
 </html>

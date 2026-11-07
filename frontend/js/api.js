@@ -1,9 +1,30 @@
-// Тонкий клиент для backend CQA (контракт: docs/API.md).
-// Базовый адрес берётся из window.CQA_CONFIG.apiBase (config.js).
+// Тонкий клиент backend CQA (контракт: docs/API.md).
+// Базовый адрес берётся из window.CQA_CONFIG.apiBase (config.js). Сессия: HttpOnly-cookie,
+// а при встраивании с другого origin ещё и токен в sessionStorage (заголовок Authorization: Bearer).
+
+const TOKEN_KEY = 'cqa.token';
 
 export function apiBase() {
   const b = (window.CQA_CONFIG && window.CQA_CONFIG.apiBase) || '';
   return String(b).replace(/\/+$/, '');
+}
+
+function crossOrigin() {
+  const b = apiBase();
+  if (!b) return false;
+  try { return new URL(b, location.href).origin !== location.origin; } catch { return false; }
+}
+
+function getToken() {
+  if (window.CQA_CONFIG && window.CQA_CONFIG.token) return window.CQA_CONFIG.token;
+  try { return sessionStorage.getItem(TOKEN_KEY); } catch { return null; }
+}
+
+function setToken(t) {
+  try {
+    if (t && crossOrigin()) sessionStorage.setItem(TOKEN_KEY, t);
+    else sessionStorage.removeItem(TOKEN_KEY);
+  } catch { /* приватный режим */ }
 }
 
 export class ApiError extends Error {
@@ -17,10 +38,9 @@ export class ApiError extends Error {
 }
 
 function detailToMessage(detail, status) {
-  if (detail == null) return `Ошибка сервера (HTTP ${status})`;
+  if (detail == null) return `Ошибка сервера, код ${status}`;
   if (typeof detail === 'string') return detail;
   if (Array.isArray(detail)) {
-    // Ошибки валидации FastAPI: [{loc, msg}]
     return detail.map((d) => (d && d.msg ? `${(d.loc || []).slice(1).join('.')}: ${d.msg}` : String(d))).join('; ');
   }
   if (typeof detail === 'object' && Array.isArray(detail.errors)) return detail.errors.join('; ');
@@ -40,7 +60,14 @@ function qs(params) {
 
 export async function request(method, path, { body, params, signal } = {}) {
   const url = apiBase() + path + qs(params);
-  const init = { method, headers: { Accept: 'application/json' }, signal };
+  const init = {
+    method,
+    headers: { Accept: 'application/json' },
+    credentials: crossOrigin() ? 'include' : 'same-origin',
+    signal,
+  };
+  const token = getToken();
+  if (token) init.headers.Authorization = `Bearer ${token}`;
   if (body !== undefined) {
     init.headers['Content-Type'] = 'application/json';
     init.body = JSON.stringify(body);
@@ -51,7 +78,7 @@ export async function request(method, path, { body, params, signal } = {}) {
   } catch (e) {
     if (e && e.name === 'AbortError') throw e;
     window.dispatchEvent(new CustomEvent('cqa:offline'));
-    throw new ApiError('Сервер CQA недоступен. Проверьте, что backend запущен.', { status: 0 });
+    throw new ApiError('Сервер CQA не отвечает. Проверьте, что backend запущен.', { status: 0 });
   }
   window.dispatchEvent(new CustomEvent('cqa:online'));
   const text = await res.text();
@@ -60,11 +87,14 @@ export async function request(method, path, { body, params, signal } = {}) {
     try { data = JSON.parse(text); } catch { data = text; }
   }
   if (!res.ok) {
+    if (res.status === 401 && path !== '/api/auth/login') {
+      setToken(null);
+      window.dispatchEvent(new CustomEvent('cqa:unauthorized'));
+    }
     if (typeof data === 'string' || data === null) {
-      // ответ не от API CQA (например, статический сервер без backend)
       const msg = res.status === 404
-        ? `API CQA не найдено (${path}). Проверьте, что backend запущен, и адрес apiBase в config.js.`
-        : `Ошибка сервера (HTTP ${res.status})`;
+        ? `API CQA не найдено (${path}). Проверьте адрес apiBase в config.js.`
+        : `Ошибка сервера, код ${res.status}`;
       throw new ApiError(msg, { status: res.status });
     }
     const detail = data && typeof data === 'object' ? data.detail : data;
@@ -80,6 +110,17 @@ const put = (path, body) => request('PUT', path, { body });
 const enc = encodeURIComponent;
 
 export const api = {
+  // вход
+  async login(username, password) {
+    const r = await post('/api/auth/login', { username, password });
+    setToken(r && r.token);
+    return r;
+  },
+  me: () => get('/api/auth/me'),
+  async logout() {
+    try { await post('/api/auth/logout'); } finally { setToken(null); }
+  },
+
   // служебные
   health: () => get('/api/health'),
   settings: () => get('/api/settings'),
@@ -90,7 +131,6 @@ export const api = {
 
   // данные
   fetchDataset: (group_id, source_url) => post('/api/datasets/fetch', source_url ? { group_id, source_url } : { group_id }),
-  // group_id не указан → сервер берёт dataset_group_id из ответа организаторов, иначе UPLOAD
   importDialogs: (payload, group_id) => post('/api/dialogs/import', group_id ? { group_id, payload } : { payload }),
   dialogs: (params) => get('/api/dialogs', params),
   dialog: (id) => get(`/api/dialogs/${enc(id)}`),
@@ -100,7 +140,7 @@ export const api = {
   activeChecklist: () => get('/api/checklists/active'),
   checklist: (id) => get(`/api/checklists/${enc(id)}`),
   defaultChecklist: () => get('/api/checklists/default'),
-  validateChecklist: (config, opts) => request('POST', '/api/checklists/validate', { ...opts, body: { config } }),
+  validateChecklist: (config) => post('/api/checklists/validate', { config }),
   saveChecklist: (config, note, activate) => post('/api/checklists', { config, note, activate }),
   activateChecklist: (id) => post(`/api/checklists/${enc(id)}/activate`),
 
@@ -115,16 +155,23 @@ export const api = {
   evaluation: (id) => get(`/api/evaluations/${enc(id)}`),
   rerun: (id) => post(`/api/evaluations/${enc(id)}/rerun`),
 
-  // апелляции
-  fileAppeal: (evalId, criterion_id, comment, author) => post(`/api/evaluations/${enc(evalId)}/appeals`, { criterion_id, comment, author }),
+  // апелляции (автор и проверяющий берутся сервером из сессии)
+  fileAppeal: (evalId, criterion_id, comment) => post(`/api/evaluations/${enc(evalId)}/appeals`, { criterion_id, comment }),
   appeals: (status = 'all') => get('/api/appeals', { status }),
   appeal: (id) => get(`/api/appeals/${enc(id)}`),
   aiReview: (id) => post(`/api/appeals/${enc(id)}/ai-review`),
   decide: (id, body) => post(`/api/appeals/${enc(id)}/decide`, body),
 
-  // калибровка и экспорт
+  // грубые ошибки
+  grossErrors: (group_id) => get('/api/gross-errors', { group_id }),
+
+  // сдача результатов (формат организаторов 1.0)
+  resultsCheck: (group_id) => get('/api/export/results/check', { group_id }),
+
+  // калибровка
   calibration: (group_id) => get('/api/calibration', { group_id }),
 };
 
 export const audioUrl = (dialogId) => `${apiBase()}/api/audio/${enc(dialogId)}`;
 export const exportUrl = (group_id, format) => `${apiBase()}/api/export${qs({ group_id, format })}`;
+export const resultsUrl = (group_id) => `${apiBase()}/api/export/results${qs({ group_id })}`;

@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 from dataclasses import dataclass, field
@@ -134,6 +135,34 @@ class AnthropicProvider:
         return await self.client.beta.messages.create(**kwargs)
 
 
+_ID_TOKENS: dict[str, tuple[str, float]] = {}
+_METADATA_IDENTITY = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity"
+
+
+async def gcp_id_token(audience: str) -> str:
+    """Google-signed ID token from the VM metadata server, for a private Cloud Run service."""
+    tok, exp = _ID_TOKENS.get(audience, ("", 0.0))
+    if tok and exp > time.time() + 60:
+        return tok
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(_METADATA_IDENTITY, params={"audience": audience, "format": "full"},
+                                 headers={"Metadata-Flavor": "Google"})
+            r.raise_for_status()
+    except httpx.HTTPError as e:
+        raise ProviderError(f"Не удалось получить токен Google Cloud для {audience}: {e}") from e
+    tok = r.text.strip()
+    _ID_TOKENS[audience] = (tok, time.time() + 50 * 60)
+    return tok
+
+
+def _needs_gcp_auth(base_url: str) -> bool:
+    mode = os.getenv("CQA_OPENAI_AUTH", "auto").lower()
+    if mode == "gcp":
+        return True
+    return mode == "auto" and ".run.app" in base_url
+
+
 class OpenAICompatProvider:
     name = "openai_compat"
 
@@ -163,12 +192,17 @@ class OpenAICompatProvider:
             "response_format": response_format,
         }
         t0 = time.perf_counter()
+        token = self.api_key
+        if _needs_gcp_auth(self.base_url):
+            parts = httpx.URL(self.base_url)
+            token = await gcp_id_token(f"{parts.scheme}://{parts.host}")
         try:
-            async with httpx.AsyncClient(timeout=900.0) as client:
+            # Long timeout: a scaled-to-zero GPU service loads the model on the first request.
+            async with httpx.AsyncClient(timeout=1200.0) as client:
                 r = await client.post(
                     f"{self.base_url}/chat/completions",
                     json=body,
-                    headers={"Authorization": f"Bearer {self.api_key}"},
+                    headers={"Authorization": f"Bearer {token}"},
                 )
         except httpx.HTTPError as e:
             raise ProviderError(f"Нет соединения с {self.base_url}: {e}") from e
@@ -194,7 +228,7 @@ def make_provider(settings: dict[str, Any]):
     if settings.get("provider") == "openai_compat":
         return OpenAICompatProvider(
             base_url=settings.get("local_base_url") or config.OPENAI_COMPAT_BASE_URL,
-            model=settings.get("local_model") or "qwen3:30b",
+            model=settings.get("local_model") or "qwen3-cqa",
             json_mode=settings.get("local_json_mode", "schema"),
         )
     return AnthropicProvider(model=settings.get("model", "claude-opus-5-5"), effort=settings.get("effort", "high"))

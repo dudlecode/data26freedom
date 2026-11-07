@@ -1,7 +1,11 @@
-// Небольшие помощники интерфейса: построитель элементов, иконки, тосты, модальные окна,
-// подсказки, форматтеры, бейджи значений. Все данные выводятся только через textContent.
+// Помощники интерфейса: построитель DOM, кнопки, поля, подсказки, тосты, небольшой диалог подтверждения,
+// всплывающие меню, форматтеры и значения критериев. Данные выводятся только через textContent.
 
-/* ---------- построитель DOM ---------- */
+import { icon } from './icons.js';
+
+export { icon };
+
+/* ---------- DOM ---------- */
 
 export function h(tag, props, ...children) {
   const el = document.createElement(tag);
@@ -9,12 +13,17 @@ export function h(tag, props, ...children) {
     for (const [k, v] of Object.entries(props)) {
       if (v === undefined || v === null || v === false) continue;
       if (k === 'class') el.className = Array.isArray(v) ? v.filter(Boolean).join(' ') : v;
-      else if (k === 'style' && typeof v === 'object') Object.assign(el.style, v);
+      else if (k === 'style' && typeof v === 'object') {
+        for (const [sk, sv] of Object.entries(v)) {
+          if (sv === undefined || sv === null) continue;
+          if (sk.startsWith('--')) el.style.setProperty(sk, String(sv)); else el.style[sk] = sv;
+        }
+      }
       else if (k === 'dataset') Object.assign(el.dataset, v);
       else if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2).toLowerCase(), v);
       else if (k === 'text') el.textContent = v;
-      else if (k === 'value' && ('value' in el)) el.value = v;
-      else if (k === 'checked' || k === 'disabled' || k === 'selected' || k === 'hidden' || k === 'open' || k === 'required' || k === 'multiple') el[k] = !!v;
+      else if (k === 'value' && 'value' in el) el.value = v;
+      else if (['checked', 'disabled', 'selected', 'hidden', 'open', 'required', 'multiple', 'readOnly'].includes(k)) el[k] = !!v;
       else if (v === true) el.setAttribute(k, '');
       else el.setAttribute(k, String(v));
     }
@@ -24,7 +33,7 @@ export function h(tag, props, ...children) {
 }
 
 export function append(el, children) {
-  for (const c of children.flat(Infinity)) {
+  for (const c of [children].flat(Infinity)) {
     if (c === null || c === undefined || c === false || c === '') continue;
     el.append(c instanceof Node ? c : document.createTextNode(String(c)));
   }
@@ -36,88 +45,82 @@ export function clear(el) {
   return el;
 }
 
-/* ---------- иконки (статичные пути, не данные) ---------- */
-
-const ICONS = {
-  chat: 'M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-4.2 3.6c-.5.4-1.3.1-1.3-.6V16A2.5 2.5 0 0 1 4 13.5z',
-  phone: 'M6.6 3.5l2.6-.4c.6-.1 1.1.2 1.3.8l1 2.9c.2.5 0 1.1-.4 1.4L9.6 9.4a11 11 0 0 0 5 5l1.2-1.5c.3-.4.9-.6 1.4-.4l2.9 1c.6.2.9.7.8 1.3l-.4 2.6c-.1.7-.7 1.1-1.4 1.1C10.4 18.4 5.6 13.6 5.5 4.9c0-.7.4-1.3 1.1-1.4z',
-  play: 'M8 5.6v12.8c0 .8.9 1.3 1.6.8l10-6.4c.6-.4.6-1.2 0-1.6l-10-6.4C8.9 4.3 8 4.8 8 5.6z',
-  pause: 'M7 5h3.5v14H7zM13.5 5H17v14h-3.5z',
-  check: 'M5 12.5l4.5 4.5L19 7.5',
-  x: 'M6 6l12 12M18 6L6 18',
-  alert: 'M12 3.5l9.5 16.5h-19zM12 10v4.5M12 17.2v.3',
-  info: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 11v5.5M12 7.8v.3',
-  refresh: 'M19.5 12a7.5 7.5 0 1 1-2.2-5.3M19.5 4.5v4h-4',
-  upload: 'M12 15.5V4M7.5 8.5L12 4l4.5 4.5M4.5 15v3a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-3',
-  download: 'M12 4v11.5M7.5 11L12 15.5l4.5-4.5M4.5 15v3a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-3',
-  cloud: 'M7 18.5h10.5a4 4 0 0 0 .6-8A6 6 0 0 0 6.6 9.6 4.5 4.5 0 0 0 7 18.5z',
-  search: 'M10.5 17a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13zM15.5 15.5L20 20',
-  plus: 'M12 5v14M5 12h14',
-  trash: 'M5 7h14M10 7V5h4v2M7 7l1 12.5h8L17 7',
-  copy: 'M8 8h11v11H8zM5 15.5V5h10.5',
-  up: 'M12 19V5M6 11l6-6 6 6',
-  down: 'M12 5v14M6 13l6 6 6-6',
-  chevron: 'M9 6l6 6-6 6',
-  gavel: 'M14 4.5l5.5 5.5M11.5 7l5.5 5.5M12.8 5.7l-5 5 4.5 4.5 5-5zM9.5 13.5L4 19',
-  scale: 'M12 4v16M6 20h12M5 8h14M7.5 8l-3 6.5a3 3 0 0 0 6 0zM16.5 8l-3 6.5a3 3 0 0 0 6 0z',
-  spark: 'M12 3.5l1.8 5.2 5.2 1.8-5.2 1.8L12 17.5l-1.8-5.2L5 10.5l5.2-1.8zM18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z',
-  compare: 'M8 4v16M16 4v16M4 8h4M16 16h4M4 16h4M16 8h4',
-  list: 'M8 6.5h12M8 12h12M8 17.5h12M4 6.5h.5M4 12h.5M4 17.5h.5',
-  key: 'M14.5 13.5a5 5 0 1 0-4.6-3L3.5 17v3.5H7v-2h2v-2h2l1.2-1.2c.7.2 1.5.2 2.3.2zM16 7.5h.3',
-  target: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 16.5a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9zM12 12.2v-.4',
-  clock: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2',
-  edit: 'M4 20h4L19 9l-4-4L4 16zM13.5 6.5l4 4',
-  external: 'M14 4h6v6M20 4l-9 9M18 14v4.5a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 4 18.5v-11A1.5 1.5 0 0 1 5.5 6H10',
-  user: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4.5 20a7.5 7.5 0 0 1 15 0',
-  bot: 'M6 9h12v9H6zM12 9V5.5M12 5.5h.1M9.5 13h.1M14.5 13h.1M3.5 12.5v3M20.5 12.5v3',
-  headset: 'M4.5 14v-2a7.5 7.5 0 0 1 15 0v2M4.5 14h3v5h-3zM16.5 14h3v5h-3zM19.5 19c0 1.2-2 2-4.5 2h-2',
-  cog: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 13.5l1.6 1.2-2 3.4-1.9-.7a7 7 0 0 1-1.7 1L15 20.5h-4l-.4-2.1a7 7 0 0 1-1.7-1l-1.9.7-2-3.4 1.6-1.2a7 7 0 0 1 0-3L5 9.3l2-3.4 1.9.7a7 7 0 0 1 1.7-1L11 3.5h4l.4 2.1a7 7 0 0 1 1.7 1l1.9-.7 2 3.4-1.6 1.2a7 7 0 0 1 0 3z',
-};
-
-export function icon(name, size = 16, cls = '') {
-  const NS = 'http://www.w3.org/2000/svg';
-  const svg = document.createElementNS(NS, 'svg');
-  svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('width', size);
-  svg.setAttribute('height', size);
-  svg.setAttribute('aria-hidden', 'true');
-  svg.setAttribute('class', `icon ${cls}`.trim());
-  const path = document.createElementNS(NS, 'path');
-  path.setAttribute('d', ICONS[name] || ICONS.info);
-  const filled = name === 'play' || name === 'pause';
-  path.setAttribute('fill', filled ? 'currentColor' : 'none');
-  path.setAttribute('stroke', filled ? 'none' : 'currentColor');
-  path.setAttribute('stroke-width', '1.8');
-  path.setAttribute('stroke-linecap', 'round');
-  path.setAttribute('stroke-linejoin', 'round');
-  svg.append(path);
-  return svg;
+/** Строка с разделителем «·» между непустыми частями. */
+export function dotted(parts, cls = 'sep') {
+  const out = [];
+  for (const p of parts.filter((x) => x !== null && x !== undefined && x !== false && x !== '')) {
+    if (out.length) out.push(h('span', { class: cls, 'aria-hidden': 'true' }, '·'), '\u200B');
+    out.push(typeof p === 'string' ? h('span', { class: 'nowrap' }, p) : p);
+  }
+  return out;
 }
 
 /* ---------- кнопки ---------- */
 
-export function button(label, { kind = 'secondary', iconName, onClick, size, title, type = 'button', disabled, cls, tip } = {}) {
+export function button(label, { kind = 'secondary', iconName, trailing, onClick, size, type = 'button', disabled, cls, tip, ariaLabel } = {}) {
   return h('button', {
     type,
     class: ['btn', `btn--${kind}`, size && `btn--${size}`, cls],
     onclick: onClick,
-    title,
     disabled,
     'data-tip': tip,
-  }, iconName ? icon(iconName, size === 'sm' ? 14 : 16) : null, label ? h('span', null, label) : null);
+    'aria-label': ariaLabel,
+  }, iconName ? icon(iconName, 16) : null, label ? h('span', null, label) : null, trailing ? icon(trailing, 16) : null);
 }
 
-/** Помечает действие роли: при другой активной роли оно визуально приглушено и снабжено подсказкой. */
-export function roleAction(el, role) {
-  el.classList.add('role-action');
-  el.dataset.forRole = role;
-  const hint = role === 'supervisor' ? 'Действие супервайзера' : 'Действие проверяющего';
-  if (!el.dataset.tip) el.dataset.tip = hint;
-  el.dataset.roleHint = hint;
+export function iconButton(name, label, onClick, { danger, disabled, tip } = {}) {
+  return h('button', {
+    type: 'button', class: ['icon-btn', danger && 'icon-btn--danger'], 'aria-label': label, 'data-tip': tip || label, disabled, onclick: onClick,
+  }, icon(name, 16));
+}
+
+/** Блокирует кнопку на время асинхронного действия; повторные нажатия игнорируются. */
+export async function withBusy(btn, fn) {
+  if (btn && btn.classList.contains('is-busy')) return undefined;
+  const was = btn ? btn.disabled : false;
+  if (btn) { btn.disabled = true; btn.classList.add('is-busy'); btn.setAttribute('aria-busy', 'true'); }
+  try { return await fn(); } finally {
+    if (btn) { btn.disabled = was; btn.classList.remove('is-busy'); btn.removeAttribute('aria-busy'); }
+  }
+}
+
+/* ---------- поля ---------- */
+
+export function field(label, control, { hint, cls } = {}) {
+  return h('label', { class: ['field', cls] },
+    h('span', { class: 'field__label' }, label),
+    control,
+    hint ? h('span', { class: 'field__hint' }, hint) : null);
+}
+
+export function select(options, value, props = {}) {
+  const el = h('select', { class: 'input', ...props });
+  for (const o of options) {
+    const opt = typeof o === 'object' ? o : { value: o, label: o };
+    el.append(h('option', { value: opt.value, selected: String(opt.value) === String(value), disabled: opt.disabled }, opt.label));
+  }
   return el;
 }
 
-/* ---------- состояние в localStorage ---------- */
+/** Сегментированный переключатель. options: [{value,label}] */
+export function segmented(options, value, onChange, { label, disabled } = {}) {
+  const box = h('div', { class: 'seg', role: 'group', 'aria-label': label });
+  let cur = value;
+  const render = () => {
+    clear(box);
+    for (const o of options) {
+      box.append(h('button', {
+        type: 'button', 'aria-pressed': String(String(o.value) === String(cur)), disabled,
+        onclick: () => { if (String(o.value) === String(cur)) return; cur = o.value; render(); onChange(o.value); },
+      }, o.label));
+    }
+  };
+  render();
+  box.setValue = (v) => { cur = v; render(); };
+  return box;
+}
+
+/* ---------- prefs ---------- */
 
 export const prefs = {
   get(key, fallback = null) {
@@ -131,185 +134,261 @@ export const prefs = {
   },
 };
 
-export function getRole() {
-  const r = prefs.get('role', 'supervisor');
-  return r === 'reviewer' ? 'reviewer' : 'supervisor';
-}
-
 /* ---------- тосты ---------- */
 
 export function toast(message, kind = 'info', timeout) {
   const box = document.getElementById('toasts');
   if (!box) return;
-  const ms = timeout ?? (kind === 'error' ? 7000 : 3800);
+  const ms = timeout ?? (kind === 'error' ? 7000 : 3500);
   const el = h('div', { class: `toast toast--${kind}`, role: kind === 'error' ? 'alert' : 'status' },
-    icon(kind === 'error' ? 'alert' : kind === 'success' ? 'check' : 'info', 16),
+    icon(kind === 'error' ? 'alert' : 'check', 16),
     h('div', { class: 'toast__msg' }, String(message)),
-    h('button', { class: 'toast__close', type: 'button', 'aria-label': 'Закрыть', onclick: () => dismiss() }, icon('x', 14)));
+    h('button', { class: 'toast__close', type: 'button', 'aria-label': 'Закрыть', onclick: () => dismiss() }, icon('close', 14)));
   box.append(el);
-  void el.offsetWidth; // запуск CSS-перехода без requestAnimationFrame (работает и в фоновой вкладке)
+  void el.offsetWidth;
   el.classList.add('is-in');
   let timer = setTimeout(dismiss, ms);
   el.addEventListener('mouseenter', () => clearTimeout(timer));
   el.addEventListener('mouseleave', () => { timer = setTimeout(dismiss, 2000); });
   function dismiss() {
     clearTimeout(timer);
-    el.classList.remove('is-in');
+    if (el.classList.contains('is-out')) return;
     el.classList.add('is-out');
-    setTimeout(() => el.remove(), 220);
+    setTimeout(() => el.remove(), 180);
   }
 }
 
 export function toastError(e, prefix) {
   if (e && e.name === 'AbortError') return;
   const msg = (e && e.message) || String(e);
-  toast(prefix ? `${prefix}: ${msg}` : msg, 'error');
+  toast(prefix ? `${prefix}. ${msg}` : msg, 'error');
 }
 
-/* ---------- модальные окна ---------- */
+/* ---------- подтверждение (небольшой нативный диалог) ---------- */
 
-let modalStack = 0;
-
-/**
- * openModal({title, body, actions:[{label, kind, onClick, close:false}], size:'md'|'lg'|'xl', onClose})
- * onClick может вернуть false (не закрывать) или Promise (кнопка блокируется на время выполнения).
- */
-export function openModal({ title, subtitle, body, actions = [], size = 'md', onClose, initialFocus } = {}) {
-  const prevFocus = document.activeElement;
-  const titleId = `modal-title-${Date.now()}`;
-  const footer = h('div', { class: 'modal__footer' });
-  const dialog = h('div', { class: `modal modal--${size}`, role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': titleId },
-    h('div', { class: 'modal__header' },
-      h('div', null,
-        h('h2', { class: 'modal__title', id: titleId }, title || ''),
-        subtitle ? h('p', { class: 'modal__subtitle' }, subtitle) : null),
-      h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Закрыть', onclick: () => close() }, icon('x', 18))),
-    h('div', { class: 'modal__body' }, body),
-    actions.length ? footer : null);
-  const overlay = h('div', { class: 'modal-overlay' }, dialog);
-  overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) close(); });
-
-  for (const a of actions) {
-    const b = button(a.label, { kind: a.kind || 'secondary', iconName: a.icon, disabled: a.disabled });
-    if (a.id) b.dataset.action = a.id;
-    b.addEventListener('click', async () => {
-      if (!a.onClick) { close(); return; }
-      b.disabled = true;
-      b.classList.add('is-busy');
-      try {
-        const r = await a.onClick({ close, button: b });
-        if (r !== false) close();
-      } catch (e) {
-        toastError(e);
-      } finally {
-        b.disabled = false;
-        b.classList.remove('is-busy');
-      }
-    });
-    footer.append(b);
-  }
-
-  function onKey(e) {
-    if (e.key === 'Escape') { e.stopPropagation(); close(); }
-    if (e.key === 'Tab') {
-      const f = [...dialog.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
-        .filter((x) => !x.disabled && x.offsetParent !== null);
-      if (!f.length) return;
-      const first = f[0];
-      const last = f[f.length - 1];
-      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
-    }
-  }
-  overlay.addEventListener('keydown', onKey);
-  document.body.append(overlay);
-  modalStack += 1;
-  document.body.classList.add('has-modal');
-  void overlay.offsetWidth;
-  overlay.classList.add('is-in');
-  setTimeout(() => {
-    const target = (initialFocus && dialog.querySelector(initialFocus))
-      || dialog.querySelector('textarea, input:not([type=hidden]), select')
-      || footer.querySelector('.btn--primary') || dialog.querySelector('.icon-btn');
-    if (target) target.focus();
-  }, 30);
-
-  let closed = false;
-  function close() {
-    if (closed) return;
-    closed = true;
-    overlay.classList.remove('is-in');
-    setTimeout(() => overlay.remove(), 180);
-    modalStack -= 1;
-    if (modalStack <= 0) { modalStack = 0; document.body.classList.remove('has-modal'); }
-    if (prevFocus && prevFocus.focus) prevFocus.focus();
-    if (onClose) onClose();
-  }
-  return { close, el: dialog, footer };
-}
-
-export function confirmDialog({ title = 'Подтвердите действие', message, confirmLabel = 'Подтвердить', danger = false } = {}) {
+export function confirmDialog({ title, message, confirmLabel = 'Подтвердить', cancelLabel = 'Отмена', danger = false } = {}) {
   return new Promise((resolve) => {
     let result = false;
-    openModal({
-      title,
-      size: 'sm',
-      body: h('p', { class: 'modal__text' }, message || ''),
-      actions: [
-        { label: 'Отмена', kind: 'ghost' },
-        { label: confirmLabel, kind: danger ? 'danger' : 'primary', onClick: () => { result = true; } },
-      ],
-      onClose: () => resolve(result),
-    });
+    const ok = button(confirmLabel, { kind: danger ? 'danger' : 'primary', onClick: () => { result = true; dlg.close(); } });
+    const dlg = h('dialog', { class: 'dlg', 'aria-labelledby': 'dlg-title' },
+      h('div', { class: 'dlg__body' },
+        h('h2', { class: 'dlg__title', id: 'dlg-title' }, title || ''),
+        message ? h('p', { class: 'dlg__text' }, message) : null),
+      h('div', { class: 'dlg__foot' },
+        button(cancelLabel, { kind: 'secondary', onClick: () => dlg.close() }),
+        ok));
+    dlg.addEventListener('close', () => { dlg.remove(); resolve(result); });
+    document.body.append(dlg);
+    dlg.showModal();
+    ok.focus();
   });
 }
 
-/* ---------- подсказки (data-tip) ---------- */
+/* ---------- всплывающее окно у кнопки (меню, короткая форма) ---------- */
+
+let openPop = null;
+
+export function closePopover() {
+  if (openPop) { const p = openPop; openPop = null; p.close(); }
+}
+
+/** popover(anchor, content, {cls, align}) -> {el, close}. Закрывается по Esc, клику вне и прокрутке. */
+export function popover(anchor, content, { cls = '', align = 'end', onClose } = {}) {
+  closePopover();
+  const el = h('div', { class: ['pop', cls], role: 'dialog' }, content);
+  document.body.append(el);
+  const place = () => {
+    const r = anchor.getBoundingClientRect();
+    const w = el.offsetWidth;
+    let left = align === 'end' ? r.right - w : r.left;
+    left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
+    let top = r.bottom + 6;
+    let above = false;
+    if (top + el.offsetHeight > window.innerHeight - 8) { top = Math.max(8, r.top - el.offsetHeight - 6); above = true; }
+    el.style.left = `${left}px`;
+    el.style.top = `${top}px`;
+    // масштаб от якоря: угол попапа, ближайший к кнопке
+    const ox = Math.max(0, Math.min(w, r.left + r.width / 2 - left));
+    el.style.transformOrigin = `${Math.round(ox)}px ${above ? '100%' : '0'}`;
+  };
+  place();
+  const onDown = (e) => { if (!el.contains(e.target) && !anchor.contains(e.target)) api.close(); };
+  const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); api.close(); anchor.focus(); } };
+  const onScroll = (e) => { if (!el.contains(e.target)) api.close(); };
+  setTimeout(() => {
+    document.addEventListener('mousedown', onDown, true);
+    document.addEventListener('keydown', onKey, true);
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', api.close);
+  }, 0);
+  anchor.setAttribute('aria-expanded', 'true');
+  const api = {
+    el,
+    close() {
+      if (!el.isConnected) return;
+      document.removeEventListener('mousedown', onDown, true);
+      document.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', api.close);
+      anchor.setAttribute('aria-expanded', 'false');
+      el.remove();
+      if (openPop === api) openPop = null;
+      if (onClose) onClose();
+    },
+  };
+  openPop = api;
+  const first = el.querySelector('select, textarea, input, button');
+  if (first) setTimeout(() => first.focus(), 0);
+  return api;
+}
+
+/** Меню действий: items [{label, icon, onClick}] */
+export function menu(anchor, items) {
+  const list = h('div', { role: 'menu' }, items.map((it) => h('button', {
+    type: 'button', class: 'menu-item', role: 'menuitem',
+    onclick: () => { closePopover(); it.onClick(); },
+  }, it.icon ? icon(it.icon, 16) : null, it.label)));
+  return popover(anchor, list, { align: 'end' });
+}
+
+/* ---------- подсказки (data-tip, data-kbd) ---------- */
 
 let tipEl = null;
 let tipTarget = null;
+let tipTimer = 0;
+let tipHiddenAt = 0;
+const TIP_DELAY = 320;
 
-function showTip(target) {
+function showTip(target, instant) {
   const text = target.dataset.tip;
-  if (!text) return;
+  if (!text || !target.isConnected) return;
   if (!tipEl) {
-    tipEl = h('div', { class: 'tooltip', role: 'tooltip' });
+    tipEl = h('div', { class: 'tip', role: 'tooltip' });
     document.body.append(tipEl);
   }
   tipTarget = target;
   tipEl.textContent = text;
-  tipEl.classList.toggle('tooltip--wide', text.length > 90);
-  tipEl.classList.add('is-in');
+  if (target.dataset.kbd) tipEl.append(h('kbd', { class: 'tip__kbd' }, target.dataset.kbd));
+  tipEl.classList.toggle('is-instant', !!instant);
   const r = target.getBoundingClientRect();
   const t = tipEl.getBoundingClientRect();
-  let top = r.top - t.height - 8;
+  let top = r.top - t.height - 6;
   let below = false;
-  if (top < 8) { top = r.bottom + 8; below = true; }
+  if (top < 8) { top = r.bottom + 6; below = true; }
   let left = r.left + r.width / 2 - t.width / 2;
   left = Math.max(8, Math.min(left, window.innerWidth - t.width - 8));
   tipEl.style.top = `${top + window.scrollY}px`;
   tipEl.style.left = `${left + window.scrollX}px`;
-  tipEl.classList.toggle('is-below', below);
+  tipEl.style.transformOrigin = `${Math.round(r.left + r.width / 2 - left)}px ${below ? '0' : '100%'}`;
+  tipEl.classList.add('is-in');
 }
 
 function hideTip() {
+  clearTimeout(tipTimer);
+  if (tipEl && tipEl.classList.contains('is-in')) tipHiddenAt = Date.now();
   tipTarget = null;
   if (tipEl) tipEl.classList.remove('is-in');
 }
 
+/** Подсказка после короткой задержки; если подсказка только что была открыта, следующая без задержки. */
+function scheduleTip(target) {
+  clearTimeout(tipTimer);
+  const warm = (tipEl && tipEl.classList.contains('is-in')) || Date.now() - tipHiddenAt < 400;
+  if (tipEl && tipEl.classList.contains('is-in')) tipEl.classList.remove('is-in');
+  tipTarget = target;
+  if (warm) { showTip(target, true); return; }
+  tipTimer = setTimeout(() => { if (tipTarget === target) showTip(target, false); }, TIP_DELAY);
+}
+
 export function installTooltips() {
+  // у disabled-кнопки нет событий мыши, поэтому подсказку роли вешаем на обёртку (см. gate)
   document.addEventListener('mouseover', (e) => {
     const t = e.target.closest && e.target.closest('[data-tip]');
-    if (t && t !== tipTarget) showTip(t);
+    if (t && t !== tipTarget) scheduleTip(t);
     else if (!t && tipTarget) hideTip();
   });
   document.addEventListener('focusin', (e) => {
     const t = e.target.closest && e.target.closest('[data-tip]');
-    if (t) showTip(t); else hideTip();
+    if (t && e.target.matches(':focus-visible')) { clearTimeout(tipTimer); showTip(t, true); } else hideTip();
   });
   document.addEventListener('focusout', hideTip);
   window.addEventListener('scroll', hideTip, true);
-  document.addEventListener('click', hideTip, true);
+  document.addEventListener('mousedown', hideTip, true);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideTip(); }, true);
+}
+
+/* ---------- движение ---------- */
+
+export const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/** Перезапускает CSS-анимацию класса на элементе (и снимает класс по её окончании). */
+export function replay(el, cls) {
+  if (!el) return;
+  el.classList.remove(cls);
+  void el.offsetWidth;
+  el.classList.add(cls);
+  el.addEventListener('animationend', () => el.classList.remove(cls), { once: true });
+}
+
+/** Счёт от 0 до значения за ms (ease-out), ширина фиксируется по итоговому тексту. */
+export function countUp(el, value, format, ms = 400) {
+  if (!el || !isNum(value) || reducedMotion()) return;
+  const final = format(value);
+  el.textContent = final;
+  el.style.display = 'inline-block';
+  el.style.minWidth = `${el.getBoundingClientRect().width}px`;
+  const t0 = performance.now();
+  const ease = (t) => 1 - (1 - t) ** 3;
+  const step = (now) => {
+    if (!el.isConnected) return;
+    const t = Math.min(1, (now - t0) / ms);
+    el.textContent = t < 1 ? format(value * ease(t)) : final;
+    if (t < 1) requestAnimationFrame(step);
+  };
+  el.textContent = format(0);
+  requestAnimationFrame(step);
+}
+
+/* ---------- клавиатура ---------- */
+
+/** true, если пользователь печатает или открыт попап: горячие клавиши не перехватываем. */
+export function keysBlocked(e) {
+  if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return true;
+  const t = e.target;
+  if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return true;
+  return !!document.querySelector('dialog[open], .pop');
+}
+
+/**
+ * Клавиша по физическому положению (e.code) с запасным сравнением по символу для латинской
+ * и русской раскладки: «]» и «ъ», «j» и «о».
+ */
+const KEYMAP = {
+  next: { code: 'BracketRight', keys: [']', 'ъ', 'Ъ'] },
+  prev: { code: 'BracketLeft', keys: ['[', 'х', 'Х'] },
+  down: { code: 'KeyJ', keys: ['j', 'J', 'о', 'О'] },
+  up: { code: 'KeyK', keys: ['k', 'K', 'л', 'Л'] },
+  select: { code: 'KeyX', keys: ['x', 'X', 'ч', 'Ч'] },
+  search: { code: 'Slash', keys: ['/'] },
+};
+export function isKey(e, name) {
+  const k = KEYMAP[name];
+  return !!k && (e.code === k.code || k.keys.includes(e.key));
+}
+
+/* ---------- порядок диалогов для перехода «предыдущий / следующий» ---------- */
+
+const NAV_KEY = 'cqa.navList';
+
+export function saveNavList(list) {
+  try { sessionStorage.setItem(NAV_KEY, JSON.stringify(list)); } catch { /* приватный режим */ }
+}
+
+export function loadNavList() {
+  try {
+    const v = JSON.parse(sessionStorage.getItem(NAV_KEY) || 'null');
+    return v && Array.isArray(v.ids) ? v : null;
+  } catch { return null; }
 }
 
 /* ---------- форматтеры ---------- */
@@ -323,50 +402,44 @@ const dtfShort = new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-di
 
 export const isNum = (x) => typeof x === 'number' && Number.isFinite(x);
 
-/** Ориентировочная стоимость одного прогона по модели, $ (для подсказок перед запуском оценки). */
-export const COST_PER_RUN = { 'claude-opus-5-5': 0.08, 'claude-sonnet-5-5': 0.04, 'claude-haiku-5-5': 0.002 };
-
-/** estimateCost(settings, nDialogs) → {votes, cost, local, model} */
-export function estimateCost(settings, n = 1) {
-  const st = settings || {};
-  const votes = Number(st.votes) || 3;
-  if (st.provider === 'openai_compat') return { votes, cost: 0, local: true, model: st.local_model || 'локальная модель' };
-  const per = COST_PER_RUN[st.model] ?? 0.08;
-  return { votes, cost: n * votes * per, local: false, model: st.model || '' };
-}
-
 export const fmt = {
-  n2: (x) => (isNum(x) ? nf2.format(x) : '—'),
-  n1: (x) => (isNum(x) ? nf1.format(x) : '—'),
-  int: (x) => (isNum(x) ? nf0.format(x) : '—'),
-  pct: (x) => (isNum(x) ? `${nf1.format(x)} %` : '—'),
-  /** доля 0..1 или процент 0..100 → «87,5 %» */
-  share: (x) => (isNum(x) ? `${nf1.format(x <= 1 ? x * 100 : x)} %` : '—'),
+  n2: (x) => (isNum(x) ? nf2.format(x) : ''),
+  n1: (x) => (isNum(x) ? nf1.format(x) : ''),
+  int: (x) => (isNum(x) ? nf0.format(x) : ''),
+  pct: (x) => (isNum(x) ? `${nf1.format(x)} %` : ''),
+  share: (x) => (isNum(x) ? `${nf1.format(x <= 1 ? x * 100 : x)} %` : ''),
   money: (x) => {
-    if (!isNum(x)) return '—';
+    if (!isNum(x)) return '';
     if (x === 0) return '$0,00';
     if (x < 1) return `$${nf3.format(x)}`;
     return `$${nf2.format(x)}`;
   },
   date: (s) => {
-    if (!s) return '—';
+    if (!s) return '';
     const d = new Date(s);
     return Number.isNaN(d.getTime()) ? String(s) : dtf.format(d);
   },
   dateShort: (s) => {
-    if (!s) return '—';
+    if (!s) return '';
     const d = new Date(s);
-    return Number.isNaN(d.getTime()) ? String(s) : dtfShort.format(d);
+    return Number.isNaN(d.getTime()) ? String(s) : dtfShort.format(d).replace(',', '');
   },
   duration: (ms) => {
-    if (!isNum(ms)) return '—';
+    if (!isNum(ms)) return '';
     const s = ms / 1000;
     if (s < 60) return `${nf1.format(s)} с`;
     const m = Math.floor(s / 60);
     const r = Math.round(s % 60);
     return `${m} мин ${String(r).padStart(2, '0')} с`;
   },
-  tokens: (x) => (isNum(x) ? nf0.format(x) : '—'),
+  seconds: (s) => {
+    if (!isNum(s)) return '';
+    if (s < 60) return `${Math.round(s)} с`;
+    const m = Math.floor(s / 60);
+    const r = Math.round(s % 60);
+    return r ? `${m} мин ${r} с` : `${m} мин`;
+  },
+  tokens: (x) => (isNum(x) ? nf0.format(x) : ''),
 };
 
 export function plural(n, one, few, many) {
@@ -378,6 +451,10 @@ export function plural(n, one, few, many) {
   return many;
 }
 
+export const nDialogs = (n) => `${fmt.int(n)} ${plural(n, 'диалог', 'диалога', 'диалогов')}`;
+export const nTurns = (n) => `${fmt.int(n)} ${plural(n, 'реплика', 'реплики', 'реплик')}`;
+export const nRuns = (n) => `${fmt.int(n)} ${plural(n, 'прогон', 'прогона', 'прогонов')}`;
+
 export function debounce(fn, ms = 300) {
   let t;
   return (...args) => {
@@ -386,22 +463,41 @@ export function debounce(fn, ms = 300) {
   };
 }
 
-/* ---------- критерии и значения ---------- */
+export function initials(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '?';
+  return (parts[0][0] + (parts[1] ? parts[1][0] : '')).toUpperCase();
+}
 
-export const TYPE_LABELS = { binary: 'Да/Нет', scale: 'Шкала', flag: 'Флаг без баллов' };
-export const CHANNEL_LABELS = { 'agent chat': 'Чат', chat: 'Чат', 'voice call': 'Звонок', call: 'Звонок' };
+/* ---------- стоимость ---------- */
+
+export const COST_PER_RUN = { 'claude-opus-5-5': 0.08, 'claude-sonnet-5-5': 0.04, 'claude-haiku-5-5': 0.002 };
+
+export function estimateCost(settings, n = 1) {
+  const st = settings || {};
+  const votes = Number(st.votes) || 3;
+  if (st.provider === 'openai_compat') return { votes, cost: 0, local: true, model: st.local_model || 'локальная модель' };
+  const per = COST_PER_RUN[st.model] ?? 0.08;
+  return { votes, cost: n * votes * per, local: false, model: st.model || '' };
+}
+
+export function costText(est) {
+  return est.local
+    ? `${nRuns(est.votes)} на диалог, локальная модель без затрат на API`
+    : `${nRuns(est.votes)} на диалог, около ${fmt.money(est.cost)}`;
+}
+
+/* ---------- каналы, роли, значения ---------- */
+
+export const TYPE_LABELS = { binary: 'Да/Нет', scale: 'Шкала', flag: 'Флаг' };
 export const LANG_LABELS = { RU: 'Русский', KZ: 'Казахский', EN: 'Английский' };
 export const SPEAKERS = { client: 'Клиент', operator: 'Оператор', bot: 'Бот', system: 'Система' };
+export const ENDED_BY = { operator_closed: 'оператор закрыл чат', client_or_connection: 'клиент ушёл' };
 
 export function isCall(channel) {
   return /call|voice|звон/i.test(String(channel || ''));
 }
-
-export function channelCell(channel) {
-  const call = isCall(channel);
-  return h('span', { class: 'channel', 'data-tip': String(channel || '') },
-    icon(call ? 'phone' : 'chat', 15), h('span', null, call ? 'Звонок' : 'Чат'));
-}
+export const channelLabel = (ch) => (isCall(ch) ? 'Звонок' : 'Чат');
 
 export function scaleSteps(c) {
   return [...(c.scale || [])].sort((a, b) => Number(b.value) - Number(a.value));
@@ -417,7 +513,7 @@ export function allowedValues(c) {
 export function normValue(v) {
   if (v === null || v === undefined) return '';
   const s = String(v).trim().toUpperCase();
-  const syn = { 'ДА': 'YES', TRUE: 'YES', 'НЕТ': 'NO', FALSE: 'NO', 'N/A': 'NA' };
+  const syn = { 'ДА': 'YES', TRUE: 'YES', 'НЕТ': 'NO', FALSE: 'NO', 'N/A': 'NA', 'Н/П': 'NA' };
   if (syn[s]) return syn[s];
   if (/^-?\d+(\.0+)?$/.test(s)) return String(Math.trunc(Number(s)));
   return s;
@@ -428,17 +524,22 @@ export function scaleMax(c) {
   return vals.length ? Math.max(...vals) : 1;
 }
 
-/** Человекочитаемое значение критерия. */
+/** Короткая подпись значения без контекста критерия. */
+export function shortValue(v) {
+  const n = normValue(v);
+  if (!n) return '';
+  return n === 'YES' ? 'Да' : n === 'NO' ? 'Нет' : n === 'NA' ? 'Н/П' : n;
+}
+
 export function valueLabel(c, v) {
   const n = normValue(v);
-  if (!n) return '—';
-  if (n === 'NA') return 'N/A';
+  if (!n) return '';
+  if (n === 'NA') return 'Н/П';
   if (c && c.type === 'scale') return `${n} из ${scaleMax(c)}`;
-  if (c && c.type === 'flag') return n === 'YES' ? 'Да, выявлено' : 'Нет';
   return n === 'YES' ? 'Да' : n === 'NO' ? 'Нет' : n;
 }
 
-/** Тон значения: yes | no | na | partial | flag */
+/** Тон значения: yes | no | partial | na | none */
 export function valueTone(c, v) {
   const n = normValue(v);
   if (!n) return 'none';
@@ -454,126 +555,141 @@ export function valueTone(c, v) {
   return n === 'YES' ? 'yes' : n === 'NO' ? 'no' : 'na';
 }
 
-export function valueBadge(c, v, { size } = {}) {
+export function valueBadge(c, v) {
   const tone = valueTone(c, v);
   const step = c && c.type === 'scale' ? scaleSteps(c).find((s) => normValue(s.value) === normValue(v)) : null;
-  return h('span', { class: ['vbadge', `vbadge--${tone}`, size && `vbadge--${size}`], 'data-tip': step && step.label ? step.label : null }, valueLabel(c, v));
+  return h('span', { class: `badge badge--${tone}`, 'data-tip': step && step.label ? step.label : null }, valueLabel(c, v) || 'нет');
 }
 
 export function scoreTone(x) {
-  if (!isNum(x)) return 'none';
-  if (x >= 85) return 'great';
-  if (x >= 70) return 'good';
-  if (x >= 50) return 'mid';
-  return 'low';
+  if (!isNum(x)) return '';
+  if (x >= 85) return 'good';
+  if (x < 60) return 'low';
+  return 'mid';
 }
 
-/** Пилюля итога: если final отличается от исходного, исходный показан зачёркнутым. */
-export function scorePill(total, finalTotal) {
+/** Итог в ячейке: финальный, а если апелляция его изменила, то «исходный / финальный». */
+export function scoreCell(total, finalTotal) {
   const fin = isNum(finalTotal) ? finalTotal : total;
-  const changed = isNum(total) && isNum(finalTotal) && Math.abs(total - finalTotal) > 0.004;
-  return h('span', { class: 'score-cell' },
-    changed ? h('s', { class: 'score-orig', 'data-tip': 'Исходная оценка ИИ до решения по апелляции' }, fmt.n2(total)) : null,
-    h('span', { class: ['score-pill', `score-pill--${scoreTone(fin)}`] }, isNum(fin) ? fmt.n2(fin) : '—'));
+  if (!isNum(fin)) return h('span', { class: 't-2' }, 'Н/П');
+  const changed = isNum(total) && Math.abs(total - fin) > 0.004;
+  return h('span', { class: 'nowrap', 'data-tip': changed ? `Исходно ${fmt.n2(total)}, после апелляции ${fmt.n2(fin)}` : null },
+    changed ? h('span', { class: 'score__orig' }, `${fmt.n2(total)} /`) : null,
+    h('span', { class: `score score--${scoreTone(fin)}` }, fmt.n2(fin)));
 }
 
-export function agreementMeter(x, { showHint = true } = {}) {
-  if (!isNum(x)) return h('span', { class: 'muted' }, '—');
-  const pct = Math.round(x * 100);
-  const tone = x >= 0.999 ? 'full' : x >= 0.66 ? 'mid' : 'low';
-  return h('span', { class: `agree agree--${tone}`, 'data-tip': `Минимальная согласованность прогонов по критериям: ${pct} %` },
-    h('span', { class: 'agree__track' }, h('span', { class: 'agree__fill', style: { width: `${pct}%` } })),
-    showHint && x < 0.999 ? h('span', { class: 'agree__hint' }, 'проверить') : null);
+/** Доля 0..1 в виде «2 из 3» (знаменатель до 9). */
+export function fraction(x, votes) {
+  if (!isNum(x)) return null;
+  if (isNum(votes) && votes > 0) return { k: Math.round(x * votes), n: votes };
+  for (let d = 1; d <= 9; d += 1) {
+    const k = x * d;
+    if (Math.abs(k - Math.round(k)) < 0.02) return { k: Math.round(k), n: d };
+  }
+  return null;
 }
 
-export function statusChip(status, error) {
-  const map = {
-    queued: ['В очереди', 'queued'],
-    running: ['Оценивается', 'running'],
-    done: ['Готово', 'done'],
-    error: ['Ошибка', 'error'],
-  };
-  const [label, tone] = map[status] || ['Не оценён', 'none'];
-  return h('span', { class: `status status--${tone}`, 'data-tip': status === 'error' && error ? String(error) : null },
-    status === 'running' || status === 'queued' ? h('span', { class: 'spinner spinner--xs', 'aria-hidden': 'true' }) : h('span', { class: 'status__dot' }),
-    label);
+export function bar(pct, tone, { grow = false } = {}) {
+  const p = Math.max(0, Math.min(100, isNum(pct) ? pct : 0));
+  return h('div', { class: ['bar', tone && `bar--${tone}`, grow && 'bar--grow'], role: 'presentation' }, h('span', { style: { width: `${p}%` } }));
 }
 
 /* ---------- ссылки на реплики в тексте ---------- */
 
-const TURN_RX = /(?<![\p{L}\d])[TТ]\s?(\d{1,4})(?:\s*(?:[–—-]|\.\.)\s*[TТ]?\s?(\d{1,4}))?/gu;
+const TURN_RX = /(?<![\p{L}\d])[TТ]\s?(\d{1,4})(?:\s*(?:[\u2013\u2014-]|\.\.)\s*[TТ]?\s?(\d{1,4}))?/gu;
 
 /**
- * Превращает «T12» и «T12–T15» в кнопки-ссылки. onTurn(from, to) вызывается по клику.
- * preview(idx) → строка для подсказки.
+ * «T12» и «T12-T15» в тексте становятся ссылками; onTurn(from, to).
+ * Скобки и знаки препинания вплотную к ссылке не отрываются от неё переносом строки.
  */
 export function linkifyTurns(text, { onTurn, preview } = {}) {
   const frag = document.createDocumentFragment();
   const s = String(text || '');
   let last = 0;
   for (const m of s.matchAll(TURN_RX)) {
-    if (m.index > last) frag.append(document.createTextNode(s.slice(last, m.index)));
-    const from = Number(m[1]);
-    const to = m[2] !== undefined ? Number(m[2]) : from;
-    const a = h('button', {
-      type: 'button',
-      class: 'turn-link',
-      'data-tip': preview ? (from === to ? preview(from) : `${preview(from)}\n…\n${preview(to)}`) : null,
-      onclick: (e) => { e.preventDefault(); if (onTurn) onTurn(Math.min(from, to), Math.max(from, to)); },
+    if (m.index < last) continue;
+    let start = m.index;
+    let lead = '';
+    const prev = s.slice(last, start);
+    const lm = /[(«"\[]+$/.exec(prev);
+    if (lm) { lead = lm[0]; start -= lead.length; }
+    if (start > last) frag.append(document.createTextNode(s.slice(last, start)));
+    // В тексте номера реплик с 1 (как у организаторов), внутри индексы с 0.
+    const a = Number(m[1]) - 1;
+    const b = m[2] !== undefined ? Number(m[2]) - 1 : a;
+    const from = Math.min(a, b);
+    const to = Math.max(a, b);
+    const link = h('button', {
+      type: 'button', class: 'tlink',
+      'data-tip': preview ? (from === to ? preview(from) : `${preview(from)}\n\n${preview(to)}`) : null,
+      onclick: (e) => { e.preventDefault(); e.stopPropagation(); if (onTurn) onTurn(from, to); },
     }, m[0]);
-    frag.append(a);
-    last = m.index + m[0].length;
+    let end = m.index + m[0].length;
+    const tm = /^[),.;:!?»"\]]+/.exec(s.slice(end));
+    const trail = tm ? tm[0] : '';
+    end += trail.length;
+    frag.append(lead || trail ? h('span', { class: 'nowrap' }, lead, link, trail) : link);
+    last = end;
   }
   if (last < s.length) frag.append(document.createTextNode(s.slice(last)));
   return frag;
 }
 
-/* ---------- состояния ---------- */
-
-export function spinner(label) {
-  return h('div', { class: 'loading' }, h('span', { class: 'spinner' }), label ? h('span', null, label) : null);
+export function rangeLabel(from, to) {
+  return from === to ? `T${from + 1}` : `T${from + 1}-T${to + 1}`;
 }
 
-export function skeleton(lines = 4, { tall = false } = {}) {
-  const box = h('div', { class: 'skeleton-group', 'aria-busy': 'true', 'aria-label': 'Загрузка' });
-  for (let i = 0; i < lines; i += 1) {
-    box.append(h('div', { class: ['skeleton', tall && 'skeleton--tall'], style: { width: `${100 - ((i * 17) % 35)}%` } }));
-  }
+/* ---------- состояния ---------- */
+
+export function skeleton(lines = 5) {
+  const box = h('div', { class: 'skel', 'aria-busy': 'true', 'aria-label': 'Загрузка' });
+  for (let i = 0; i < lines; i += 1) box.append(h('span', { style: { width: `${92 - ((i * 23) % 40)}%` } }));
   return box;
 }
 
-export function emptyState({ title, text, action, iconName = 'list' }) {
+export function emptyState({ title, text, actions }) {
   return h('div', { class: 'empty' },
-    h('div', { class: 'empty__icon' }, icon(iconName, 26)),
     h('h3', { class: 'empty__title' }, title),
     text ? h('p', { class: 'empty__text' }, text) : null,
-    action || null);
+    actions ? h('div', { class: 'empty__actions' }, actions) : null);
 }
 
 export function errorState(err, onRetry) {
   return h('div', { class: 'empty empty--error' },
-    h('div', { class: 'empty__icon' }, icon('alert', 26)),
-    h('h3', { class: 'empty__title' }, 'Не удалось загрузить данные'),
+    h('h3', { class: 'empty__title' }, 'Данные не загрузились'),
     h('p', { class: 'empty__text' }, (err && err.message) || String(err)),
-    onRetry ? button('Повторить', { kind: 'secondary', iconName: 'refresh', onClick: onRetry }) : null);
+    onRetry ? h('div', { class: 'empty__actions' }, button('Повторить', { kind: 'secondary', onClick: onRetry })) : null);
 }
 
-/* ---------- поля форм ---------- */
-
-export function field(label, control, { hint, cls, htmlFor } = {}) {
-  return h('label', { class: ['field', cls], for: htmlFor },
-    h('span', { class: 'field__label' }, label),
-    control,
-    hint ? h('span', { class: 'field__hint' }, hint) : null);
+/** Шапка страницы. */
+export function pageHeader({ title, meta, back, actions, extra, progress }) {
+  return h('header', { class: 'ph' },
+    h('div', { class: 'ph__main' },
+      back ? h('a', { class: 'ph__back', href: back.href, 'data-tip': back.kbd ? 'Вернуться к списку' : null, 'data-kbd': back.kbd || null }, icon('chevronLeft', 16), back.label) : null,
+      h('h1', { class: 'ph__title' }, title),
+      meta ? h('div', { class: 'ph__meta' }, meta) : null,
+      extra || null),
+    actions ? h('div', { class: 'ph__actions' }, actions) : null,
+    progress || null);
 }
 
-export function select(options, value, props = {}) {
-  const el = h('select', { class: 'input', ...props });
-  for (const o of options) {
-    const opt = typeof o === 'object' ? o : { value: o, label: o };
-    el.append(h('option', { value: opt.value, selected: String(opt.value) === String(value), disabled: opt.disabled }, opt.label));
-  }
-  return el;
+/** Тонкая полоса прогресса под шапкой: неопределённая (бегущий отрезок) или с долей готового. */
+export function progressLine(label) {
+  const fill = h('span', { class: 'progress-line__fill' });
+  const el = h('div', { class: 'progress-line', hidden: true, role: 'progressbar', 'aria-label': label || 'Прогресс' }, fill);
+  return {
+    el,
+    set(done, total) {
+      el.hidden = false;
+      const indet = !isNum(done) || !isNum(total) || total <= 0;
+      el.classList.toggle('is-indeterminate', indet);
+      if (indet) { el.removeAttribute('aria-valuenow'); fill.style.transform = ''; return; }
+      el.setAttribute('aria-valuenow', String(done));
+      el.setAttribute('aria-valuemax', String(total));
+      fill.style.transform = `scaleX(${Math.max(0.03, done / total)})`;
+    },
+    hide() { el.hidden = true; },
+  };
 }
 
 export function sleep(ms) {

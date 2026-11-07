@@ -62,7 +62,7 @@ def compare(items: list[dict[str, Any]], reference: dict[str, Any] | None) -> di
                 matches += 1
             else:
                 diffs.append({"cid": cid, "ref": rv, "pred": pv})
-            key = f"{rv}→{pv}"
+            key = f"{rv}->{pv}"
             slot["confusion"][key] = slot["confusion"].get(key, 0) + 1
         # reference total: reference values over the same checklist (criteria without a
         # reference label take the predicted value so that totals stay comparable)

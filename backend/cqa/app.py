@@ -19,7 +19,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import audio, calibration, config, db, evaluator, keys, prompting, providers, scoring, sources
+from .text import plain
+from . import audio, auth, calibration, results_export, config, db, evaluator, keys, prompting, providers, scoring, sources
 from .preprocess import prepare, render_for_llm
 
 VERSION = "1.0.0"
@@ -278,6 +279,7 @@ def ensure_schema() -> None:
 def seed_and_recover() -> None:
     _checklist_cache.clear()
     ensure_schema()
+    auth.ensure_users()
     if not db.one("SELECT id FROM checklists LIMIT 1"):
         cfg = load_default_checklist()
         db.insert(
@@ -401,7 +403,7 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="CQA — Conversation Quality Analytics", version=VERSION, lifespan=lifespan)
+app = FastAPI(title="CQA: Conversation Quality Analytics", version=VERSION, lifespan=lifespan)
 
 # Cross-origin embedding (e.g. Dynamics 365 web resource with config.js apiBase on another
 # origin): list allowed origins in CQA_CORS_ORIGINS, comma-separated. Empty = same-origin only.
@@ -427,6 +429,62 @@ def body_dict(body: Any) -> dict[str, Any]:
     if not isinstance(body, dict):
         raise err(400, "Тело запроса должно быть JSON-объектом.")
     return body
+
+
+# --- auth ---------------------------------------------------------------------------------
+
+
+def _who(fallback: Any) -> str:
+    u = auth.current_user.get()
+    return u["display_name"] if u else str(fallback or "").strip()
+
+
+@app.middleware("http")
+async def _auth_middleware(request: Request, call_next):
+    path = request.url.path
+    method = request.method.upper()
+    if not path.startswith("/api/"):
+        resp = await call_next(request)
+        resp.headers["Cache-Control"] = "no-cache"  # always revalidate the UI files
+        return resp
+    if method == "OPTIONS" or (method, path) in auth.PUBLIC_API:
+        return await call_next(request)
+    user = auth.user_from_token(auth.token_from_request(request.headers, request.cookies))
+    if user is None:
+        return JSONResponse({"detail": "Требуется вход в систему."}, status_code=401)
+    roles = auth.allowed_roles(method, path)
+    if user["role"] not in roles:
+        need = ", ".join(auth.ROLE_LABEL[r] for r in roles)
+        return JSONResponse({"detail": f"Недостаточно прав. Действие доступно ролям: {need}."}, status_code=403)
+    token = auth.current_user.set(user)
+    try:
+        return await call_next(request)
+    finally:
+        auth.current_user.reset(token)
+
+
+@app.post("/api/auth/login")
+def auth_login(body: Any = Body(default=None)):
+    b = body_dict(body)
+    res = auth.login(str(b.get("username") or ""), str(b.get("password") or ""))
+    if not res:
+        raise err(401, "Неверный логин или пароль.")
+    user, token = res
+    resp = JSONResponse({"user": user, "token": token})
+    resp.set_cookie(auth.COOKIE, token, max_age=auth.SESSION_TTL_S, httponly=True, samesite="lax")
+    return resp
+
+
+@app.post("/api/auth/logout")
+def auth_logout():
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie(auth.COOKIE)
+    return resp
+
+
+@app.get("/api/auth/me")
+def auth_me():
+    return {"user": auth.current_user.get()}
 
 
 # --- service ---
@@ -477,6 +535,96 @@ async def key_post(body: Any = Body(default=None)):
         raise err(400, str(e))
 
 
+@app.get("/api/gross-errors")
+def gross_errors(group_id: str | None = None):
+    """Dialogs whose latest finished evaluation (after appeal decisions) has a gross-error flag."""
+    items = []
+    for d, e in latest_done_by_dialog(group_id):
+        final = e.get("final") or {}
+        score = final.get("score") or (e.get("result") or {}).get("score") or {}
+        flagged = score.get("gross_criteria") or []
+        if not flagged:
+            continue
+        cfg = (checklist_cached(e["checklist_id"]) or {}).get("config") or {}
+        res = (e.get("result") or {}).get("criteria") or {}
+        rec = db.one("SELECT transcript FROM dialogs WHERE id = ?", [d["id"]]) or {}
+        turns = rec.get("transcript") or []
+        crits = []
+        for cid in flagged:
+            c = find_criterion(cfg, cid) or {}
+            r = res.get(cid) or {}
+            ev = [i for i in (r.get("evidence_turns") or []) if isinstance(i, int) and 0 <= i < len(turns)]
+            crits.append({
+                "criterion_id": cid,
+                "code": c.get("code") or cid,
+                "name": c.get("name") or cid,
+                "reasoning": r.get("reasoning") or "",
+                "evidence_turns": ev,
+                "evidence": [{"idx": i, "speaker": turns[i].get("speaker"), "text": turns[i].get("text")} for i in ev[:3]],
+                "agreement": r.get("agreement"),
+                "votes": r.get("votes") or [],
+                "overridden": cid in (final.get("overrides") or {}),
+            })
+        items.append({
+            "dialog_id": d["id"], "group_id": d.get("group_id"), "channel": d.get("channel"),
+            "language": d.get("language"), "evaluation_id": e["id"],
+            "total": e.get("total"), "final_total": e.get("final_total"), "criteria": crits,
+        })
+    return {"items": items}
+
+
+def export_selection(group_id: str | None, checklist_id: int | None = None):
+    """Dialogs of a group with the evaluation to export: the latest finished one (optionally of
+    a given checklist version), else the latest attempt so failures are reported, not hidden."""
+    dsql = "SELECT id, group_id, transcript FROM dialogs"
+    params: list[Any] = []
+    if group_id:
+        dsql += " WHERE group_id = ?"
+        params.append(group_id)
+    dialogs = db.query(dsql + " ORDER BY id", params)
+    chosen: dict[str, dict[str, Any]] = {}
+    for d in dialogs:
+        rows = db.query("SELECT * FROM evaluations WHERE dialog_id = ? ORDER BY id DESC", [d["id"]])
+        done = [r for r in rows if r["status"] == "done" and (checklist_id is None or r["checklist_id"] == checklist_id)]
+        pick = done[0] if done else (rows[0] if rows else None)
+        if pick:
+            chosen[d["id"]] = pick
+    configs = {}
+    for e in chosen.values():
+        if e["checklist_id"] not in configs:
+            configs[e["checklist_id"]] = (checklist_cached(e["checklist_id"]) or {}).get("config")
+    return dialogs, chosen, configs
+
+
+@app.get("/api/export/results")
+def export_results(group_id: str | None = None, checklist_id: int | None = None, team_name: str | None = None,
+                   download: int = 1):
+    """Organizers' results format JSON 1.0 (results/<dev|prod>/results.json)."""
+    dialogs, chosen, configs = export_selection(group_id, checklist_id)
+    doc = results_export.build(dialogs, chosen, configs, team_name or db.get_setting("team_name"))
+    errors = results_export.validate(doc, [d["id"] for d in dialogs])
+    body = json.dumps(doc, ensure_ascii=False, indent=2)
+    headers = {"X-CQA-Validation-Errors": str(len(errors))}
+    if download:
+        headers["Content-Disposition"] = 'attachment; filename="results.json"'
+    return Response(body, media_type="application/json; charset=utf-8", headers=headers)
+
+
+@app.get("/api/export/results/check")
+def export_results_check(group_id: str | None = None, checklist_id: int | None = None):
+    dialogs, chosen, configs = export_selection(group_id, checklist_id)
+    doc = results_export.build(dialogs, chosen, configs, db.get_setting("team_name"))
+    res = doc["results"]
+    return {
+        "count": len(res),
+        "ok": sum(1 for r in res if r["status"] == "ok"),
+        "errors_in_results": sum(1 for r in res if r["status"] == "error"),
+        "model": doc["model"],
+        "team_name": doc["team_name"],
+        "validation_errors": results_export.validate(doc, [d["id"] for d in dialogs]),
+    }
+
+
 @app.get("/api/stats")
 def stats(group_id: str | None = None):
     dsql, params = "SELECT COUNT(*) AS n FROM dialogs", []
@@ -494,7 +642,7 @@ def stats(group_id: str | None = None):
             totals.append(ft)
         if e.get("gross"):
             gross_count += 1
-        lang = d.get("language") or "—"
+        lang = d.get("language") or "-"
         slot = by_lang.setdefault(lang, {"count": 0, "_sum": 0.0, "_n": 0})
         slot["count"] += 1
         if ft is not None:
@@ -952,7 +1100,7 @@ def criterion_original(e: dict[str, Any], cid: str) -> dict[str, Any]:
     reasoning = res.get("reasoning", "")
     ov = (final.get("overrides") or {}).get(cid)
     if ov:
-        reasoning = f"Изменено по апелляции #{ov['appeal_id']} ({ov['from']} → {ov['to']}): {ov['reason']}"
+        reasoning = f"Изменено по апелляции #{ov['appeal_id']} (было {ov['from']}, стало {ov['to']}): {ov['reason']}"
     return {
         "value": value,
         "reasoning": reasoning,
@@ -983,7 +1131,7 @@ def appeals_create(eval_id: int, body: Any = Body(default=None)):
             "evaluation_id": eval_id,
             "criterion_id": cid,
             "comment": str(b.get("comment") or "").strip(),
-            "author": str(b.get("author") or "").strip(),
+            "author": _who(b.get("author")),
             "status": "open",
             "original": original,
             "created_at": db.now(),
@@ -1083,10 +1231,10 @@ async def appeals_ai_review(appeal_id: int):
     data = rr.data if isinstance(rr.data, dict) else {}
     opinion = {
         "value": scoring.normalize_value(crit, data.get("value")),
-        "reasoning": str(data.get("reasoning") or "").strip(),
+        "reasoning": plain(str(data.get("reasoning") or "").strip()),
         "evidence_turns": evaluator.clean_turns(data.get("evidence_turns"), len(prepared.turns)),
         "appeal_valid": bool(data.get("appeal_valid")),
-        "recommendation": str(data.get("recommendation") or "").strip(),
+        "recommendation": plain(str(data.get("recommendation") or "").strip()),
         "model": rr.model,
         "cost_usd": rr.cost_usd,
     }
@@ -1137,7 +1285,7 @@ def _appeals_decide_locked(appeal_id: int, b: dict[str, Any]) -> dict[str, Any]:
             "decision": decision,
             "decision_value": value,
             "decision_reason": reason,
-            "reviewer": str(b.get("reviewer") or "").strip(),
+            "reviewer": _who(b.get("reviewer")),
             "decided_at": db.now(),
             "total_before": total_before,
         },
@@ -1252,7 +1400,7 @@ def export(group_id: str | None = None, format: str = Query(default="csv")):
         "Итог", "Финальный итог", "Грубая ошибка", "Модель", "Стоимость, $",
     ]
     for cid in crit_order:
-        header += [f"{cid} {crit_names[cid]} — значение", f"{cid} — баллы"]
+        header += [f"{cid} {crit_names[cid]}: значение", f"{cid}: баллы"]
     w.writerow(header)
     for r in rows:
         line = [

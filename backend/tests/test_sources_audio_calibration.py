@@ -99,7 +99,7 @@ def test_calibration_math(checklist):
     assert d1["diffs"] == [{"cid": "c07", "ref": "NO", "pred": "YES"}]
     assert out["total_mae"] == pytest.approx((100 - 92.31) / 2, abs=0.01)
     assert out["by_criterion"]["c07"]["exact"] == 0.5
-    assert out["by_criterion"]["c07"]["confusion"] == {"NO→YES": 1, "YES→YES": 1}
+    assert out["by_criterion"]["c07"]["confusion"] == {"NO->YES": 1, "YES->YES": 1}
     assert calibration.compare(items, None)["available"] is False
 
 

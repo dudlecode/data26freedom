@@ -315,8 +315,8 @@ def _compute_facts(p: Prepared) -> dict[str, Any]:
 PHASE_NOTE = {
     "pre_operator": "",
     "main": "",
-    "hold": " [КЛИЕНТ НА УДЕРЖАНИИ — внутренняя консультация, клиент не слышит]",
-    "after_end": " [ПОСЛЕ ЗАВЕРШЕНИЯ РАЗГОВОРА КЛИЕНТОМ — не оценивается]",
+    "hold": " [КЛИЕНТ НА УДЕРЖАНИИ: внутренняя консультация, клиент не слышит]",
+    "after_end": " [ПОСЛЕ ЗАВЕРШЕНИЯ РАЗГОВОРА КЛИЕНТОМ: не оценивается]",
 }
 
 
@@ -326,44 +326,44 @@ def render_facts(p: Prepared) -> str:
         f"Канал: {p.channel}. Язык клиента по разметке: {p.language}.",
     ]
     if f["escalation_turn"] is not None:
-        lines.append(f"Подключение оператора (системное событие): T{f['escalation_turn']}.")
+        lines.append(f"Подключение оператора (системное событие): T{f['escalation_turn'] + 1}.")
     if f["first_operator_turn"] is not None:
         frt = f["first_response_s"]
         if frt is not None:
             ok = "в пределах порога 3 мин" if f["first_response_ok"] else "ПРЕВЫШЕН порог 3 мин"
             lines.append(
-                f"Первое сообщение оператора: T{f['first_operator_turn']}, первая реакция через {frt} с ({ok})."
+                f"Первое сообщение оператора: T{f['first_operator_turn'] + 1}, первая реакция через {frt} с ({ok})."
             )
         else:
-            lines.append(f"Первое сообщение оператора: T{f['first_operator_turn']}.")
+            lines.append(f"Первое сообщение оператора: T{f['first_operator_turn'] + 1}.")
     else:
         lines.append("Оператор не написал ни одного сообщения.")
     if f["client_waits"]:
         mx = max(f["client_waits"], key=lambda x: x["wait_s"])
         lines.append(
-            f"Максимальное ожидание ответа оператора клиентом: {mx['wait_s']} с (T{mx['client_turn']}→T{mx['operator_turn']})."
+            f"Максимальное ожидание ответа оператора клиентом: {mx['wait_s']} с (T{mx['client_turn'] + 1}-T{mx['operator_turn'] + 1})."
         )
     for w in f["long_waits"]:
         warn = "оператор перед этим предупредил об ожидании" if w["warned_before"] else "предупреждения об ожидании не было"
-        lines.append(f"Долгое ожидание: T{w['client_turn']}→T{w['operator_turn']} = {w['wait_s']} с, {warn}.")
+        lines.append(f"Долгое ожидание: T{w['client_turn'] + 1}-T{w['operator_turn'] + 1}: {w['wait_s']} с, {warn}.")
     if f["identity_verified_turn"] is not None:
-        lines.append(f"Системное подтверждение личности клиента: T{f['identity_verified_turn']}.")
+        lines.append(f"Системное подтверждение личности клиента: T{f['identity_verified_turn'] + 1}.")
     else:
         lines.append("Системного события подтверждения личности нет (в звонке проверка может идти голосом).")
     if f["ended_by"] == "operator_closed":
-        lines.append(f"Чат закрыт оператором: T{f['end_event_turn']}.")
+        lines.append(f"Чат закрыт оператором: T{f['end_event_turn'] + 1}.")
     elif f["ended_by"] == "client_or_connection":
-        lines.append(f"Разговор прерван клиентом/связью: T{f['end_event_turn']}.")
+        lines.append(f"Разговор прерван клиентом/связью: T{f['end_event_turn'] + 1}.")
     else:
         lines.append("Системного события о закрытии чата нет.")
     if f["last_operator_turn"] is not None:
-        lines.append(f"Последнее сообщение оператора: T{f['last_operator_turn']}. Последним в диалоге писал: {SPEAKER_LABEL.get(f['last_speaker'] or '', '-')}.")
+        lines.append(f"Последнее сообщение оператора: T{f['last_operator_turn'] + 1}. Последним в диалоге писал: {SPEAKER_LABEL.get(f['last_speaker'] or '', '-')}.")
     if f["hold_turns"]:
         lines.append(
-            f"Реплики во время удержания клиента (не слышны клиенту): T{f['hold_turns'][0]}–T{f['hold_turns'][-1]}."
+            f"Реплики во время удержания клиента (не слышны клиенту): T{f['hold_turns'][0] + 1}-T{f['hold_turns'][-1] + 1}."
         )
     if f["after_end_turns"]:
-        lines.append(f"Реплики после завершения разговора клиентом: T{f['after_end_turns'][0]}–T{f['after_end_turns'][-1]}.")
+        lines.append(f"Реплики после завершения разговора клиентом: T{f['after_end_turns'][0] + 1}-T{f['after_end_turns'][-1] + 1}.")
     return "\n".join(f"- {x}" for x in lines)
 
 
@@ -375,7 +375,7 @@ def render_transcript(p: Prepared) -> str:
         text = t.text
         if t.boilerplate:
             text = "(стандартное приветствие/согласие бота) " + text[:80] + ("…" if len(text) > 80 else "")
-        out.append(f"T{t.idx} [{clock}] {label}{PHASE_NOTE.get(t.phase, '')}: {text}")
+        out.append(f"T{t.idx + 1} [{clock}] {label}{PHASE_NOTE.get(t.phase, '')}: {text}")
     return "\n".join(out)
 
 
@@ -383,5 +383,5 @@ def render_for_llm(p: Prepared) -> str:
     return (
         f"ДИАЛОГ {p.conversation_id}\n\n"
         f"ФАКТЫ (рассчитаны автоматически по меткам времени и системным событиям):\n{render_facts(p)}\n\n"
-        f"ТРАНСКРИПТ (T# — номер реплики, время от начала диалога):\n{render_transcript(p)}"
+        f"ТРАНСКРИПТ (T#: номер реплики с 1 по исходному массиву, время от начала диалога):\n{render_transcript(p)}"
     )

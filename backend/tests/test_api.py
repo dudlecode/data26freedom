@@ -19,6 +19,7 @@ def client(temp_db, monkeypatch):
     stub = StubProvider(appeal={"value": "NO", "appeal_valid": True})
     monkeypatch.setattr(providers, "make_provider", lambda settings: stub)
     with TestClient(app_module.app) as c:
+        assert c.post("/api/auth/login", json={"username": "admin", "password": "freedom2026"}).status_code == 200
         c.stub = stub  # type: ignore[attr-defined]
         yield c
 
@@ -195,6 +196,7 @@ def test_stale_jobs_marked_on_startup(temp_db, monkeypatch):
         pass
     db.insert("evaluations", {"dialog_id": "x", "checklist_id": 1, "status": "running", "created_at": db.now()})
     with TestClient(app_module.app) as c:
+        c.post("/api/auth/login", json={"username": "admin", "password": "freedom2026"})
         e = c.get("/api/evaluations").json()["items"][0]
         assert e["status"] == "error" and e["error"] == "прервано перезапуском сервера"
 
@@ -265,3 +267,50 @@ def test_review_fixes_import_checklist_appeals(client):
     assert client.post(f"/api/appeals/{a2['id']}/ai-review").status_code == 409
     g = client.get(f"/api/appeals/{a2['id']}").json()
     assert g["has_audio"] is False
+
+
+def test_auth_and_roles(temp_db, monkeypatch):
+    with TestClient(app_module.app) as c:
+        assert c.get("/api/health").status_code == 200
+        assert c.get("/api/dialogs").status_code == 401
+        assert c.post("/api/auth/login", json={"username": "admin", "password": "wrong"}).status_code == 401
+        r = c.post("/api/auth/login", json={"username": "supervisor", "password": "freedom2026"})
+        assert r.status_code == 200 and r.json()["user"]["role"] == "supervisor"
+        assert c.get("/api/auth/me").json()["user"]["username"] == "supervisor"
+        assert c.get("/api/dialogs").status_code == 200
+        assert c.put("/api/settings", json={"votes": 1}).status_code == 403
+        assert c.post("/api/appeals/1/decide", json={}).status_code == 403
+        token = r.json()["token"]
+        c.post("/api/auth/logout")
+        c.cookies.clear()
+        assert c.get("/api/dialogs").status_code == 401
+        assert c.get("/api/dialogs", headers={"Authorization": f"Bearer {token}"}).status_code == 200
+        c.post("/api/auth/login", json={"username": "reviewer", "password": "freedom2026"})
+        assert c.post("/api/evaluations/1/appeals", json={"criterion_id": "c01"}).status_code == 403
+
+
+def test_results_export_format(client):
+    from cqa import results_export
+    payload = json.loads(DEV_JSON.read_text(encoding="utf-8"))
+    client.post("/api/dialogs/import", json={"group_id": "DEV", "payload": payload})
+    ids = ["p1-ru-001", "p1-ru-009"]
+    ev = client.post("/api/evaluations", json={"dialog_ids": ids}).json()["evaluation_ids"]
+    wait_done(client, ev)
+    # one dialog left unevaluated must be reported as status=error, not hidden
+    client.post("/api/dialogs/import", json={"group_id": "T", "payload": {"conversation_id": "t-1", "transcript": [{"timestamp": "00:00", "speaker": "client", "text": "привет"}]}})
+    for d in ids:
+        client.post("/api/dialogs/import", json={"group_id": "T", "payload": next(r for r in payload["data"]["records"] if r["conversation_id"] == d)})
+    doc = client.get("/api/export/results", params={"group_id": "T", "download": 0}).json()
+    assert doc["schema_version"] == "1.0" and doc["model"]["mode"] in ("external_api", "local", "hybrid")
+    by = {r["conversation_id"]: r for r in doc["results"]}
+    assert by["t-1"]["status"] == "error" and by["t-1"]["criteria"] == [] and by["t-1"]["score"] is None
+    ok = by["p1-ru-001"]
+    assert [c["criterion_id"] for c in ok["criteria"]] == results_export.STANDARD_IDS
+    assert all(isinstance(c["evidence_turns"], list) and all(i >= 1 for i in c["evidence_turns"]) for c in ok["criteria"])
+    assert ok["score"]["critical_flag"] is next(c["value"] for c in ok["criteria"] if c["criterion_id"] == "critical")
+    assert results_export.validate(doc, ["p1-ru-001", "p1-ru-009", "t-1"]) == []
+    chk = client.get("/api/export/results/check", params={"group_id": "T"}).json()
+    assert chk["count"] == 3 and chk["errors_in_results"] == 1 and chk["validation_errors"] == []
+    # validator catches broken files
+    bad = json.loads(json.dumps(doc)); bad["results"][0]["criteria"] = bad["results"][0]["criteria"][:7]
+    assert results_export.validate(bad)

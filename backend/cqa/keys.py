@@ -43,7 +43,7 @@ async def verify(key: str) -> None:
     except anthropic.APIStatusError as e:
         raise KeyError_(f"Claude API вернул ошибку {e.status_code} при проверке ключа.") from e
     except anthropic.APIConnectionError as e:
-        raise KeyError_("Нет соединения с Claude API — ключ не удалось проверить.") from e
+        raise KeyError_("Нет соединения с Claude API, ключ не удалось проверить.") from e
     finally:
         await client.close()
 
@@ -76,7 +76,7 @@ async def save(key: str) -> dict:
     if not key:
         raise KeyError_("Введите ключ Claude API.")
     if any(ch.isspace() for ch in key) or len(key) < 20:
-        raise KeyError_("Похоже, это не ключ Claude API: ключ — одна строка без пробелов, обычно начинается с sk-ant-.")
+        raise KeyError_("Похоже, это не ключ Claude API: ключ это одна строка без пробелов, обычно начинается с sk-ant-.")
     await verify(key)
     write_env(key)
     config.ANTHROPIC_API_KEY = key

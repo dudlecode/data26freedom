@@ -10,6 +10,7 @@ import time
 from collections import Counter
 from typing import Any
 
+from .text import plain
 from . import prompting, scoring
 from .preprocess import prepare, render_for_llm
 from .providers import ProviderError, RunResult
@@ -22,10 +23,12 @@ def _criteria(cfg: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def clean_turns(turns: Any, n_turns: int) -> list[int]:
+    """Model output uses 1-based turn numbers (T1 = first transcript item, as in the
+    organizers' format); stored evidence is 0-based indices into the transcript."""
     out: list[int] = []
     for t in turns or []:
         try:
-            i = int(t)
+            i = int(t) - 1
         except (TypeError, ValueError):
             continue
         if 0 <= i < n_turns and i not in out:
@@ -35,7 +38,7 @@ def clean_turns(turns: Any, n_turns: int) -> list[int]:
 
 def checked_range(c_from: Any, c_to: Any, n_turns: int) -> list[int] | None:
     try:
-        a, b = int(c_from), int(c_to)
+        a, b = int(c_from) - 1, int(c_to) - 1  # 1-based from the model
     except (TypeError, ValueError):
         return None
     if a < 0 or b < 0 or a >= n_turns or b >= n_turns:
@@ -102,14 +105,14 @@ def aggregate(cfg: dict[str, Any], runs_data: list[dict[str, Any]], n_turns: int
 
             cand = [i for i, vals in enumerate(per_run_values) if cid in vals]
             src_idx = min(cand, key=lambda i: (_dist(i), i))
-            note = f"Итог — медиана голосов ({', '.join(votes)}). Обоснование прогона с оценкой {per_run_values[src_idx][cid]}: "
+            note = f"Итог: медиана голосов ({', '.join(votes)}). Обоснование прогона с оценкой {per_run_values[src_idx][cid]}: "
         item = (runs_data[src_idx].get("criteria") or {}).get(cid) or {}
         criteria[cid] = {
             "value": value,
-            "reasoning": note + str(item.get("reasoning") or "").strip(),
+            "reasoning": plain(note + str(item.get("reasoning") or "").strip()),
             "evidence_turns": clean_turns(item.get("evidence_turns"), n_turns),
             "checked_range": checked_range(item.get("checked_from"), item.get("checked_to"), n_turns),
-            "na_reason": str(item.get("na_reason") or "").strip() if value == scoring.NA else "",
+            "na_reason": plain(str(item.get("na_reason") or "").strip()) if value == scoring.NA else "",
             "votes": votes,
             "agreement": round(sum(1 for v in votes if v == value) / len(votes), 4),
         }
@@ -212,7 +215,7 @@ async def evaluate(
     values = {cid: v["value"] for cid, v in criteria.items()}
     score = scoring.compute(checklist_cfg, values)
     result = {
-        "client_request": str(ok[0].data.get("client_request") or "").strip(),
+        "client_request": plain(str(ok[0].data.get("client_request") or "").strip()),
         "criteria": criteria,
         "score": score,
         "runs": runs,

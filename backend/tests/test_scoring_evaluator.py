@@ -91,8 +91,8 @@ def test_aggregate_agreement_and_reasoning_source(checklist):
     assert c["value"] == "15" and c["votes"] == ["10", "15", "15"]
     assert c["agreement"] == pytest.approx(2 / 3, abs=1e-4)
     assert c["reasoning"] == "r2"  # first run that produced the winning value
-    assert c["evidence_turns"] == [3]
-    assert c["checked_range"] == [2, 5]
+    assert c["evidence_turns"] == [2]  # model's T3 (1-based) -> index 2
+    assert c["checked_range"] == [1, 4]
     assert c["na_reason"] == ""  # only for NA
     # criterion missing from every run -> default value, zero agreement
     assert out["c01"]["votes"] == [] and out["c01"]["agreement"] == 0.0
@@ -100,8 +100,10 @@ def test_aggregate_agreement_and_reasoning_source(checklist):
 
 def test_checked_range_rules():
     assert evaluator.checked_range(-1, -1, 10) is None
+    assert evaluator.checked_range(0, 0, 10) is None  # T0 does not exist in 1-based numbering
     assert evaluator.checked_range(2, 20, 10) is None
-    assert evaluator.checked_range(4, 6, 10) == [4, 6]
+    assert evaluator.checked_range(4, 6, 10) == [3, 5]
+    assert evaluator.checked_range(10, 10, 10) == [9, 9]
 
 
 # --- evaluator end-to-end -----------------------------------------------------------------
@@ -175,4 +177,4 @@ def test_median_tie_reasoning_is_labelled(checklist):
             {"criteria": {c["id"]: {"value": hi, "reasoning": "high"}}}]
     out = evaluator.aggregate({"criteria": [c]}, runs, 5)[c["id"]]
     if out["value"] not in (lo, hi):
-        assert out["reasoning"].startswith("Итог — медиана голосов")
+        assert out["reasoning"].startswith("Итог: медиана голосов")

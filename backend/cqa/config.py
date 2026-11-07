@@ -31,14 +31,14 @@ DEFAULT_SETTINGS = {
     "votes": int(os.getenv("CQA_VOTES", "3")),  # self-consistency runs per dialog
     "concurrency": int(os.getenv("CQA_CONCURRENCY", "4")),  # dialogs evaluated in parallel
     "local_base_url": OPENAI_COMPAT_BASE_URL,
-    "local_model": os.getenv("CQA_LOCAL_MODEL", "qwen3:30b"),
+    "local_model": os.getenv("CQA_LOCAL_MODEL", "qwen3-cqa"),
     "local_json_mode": "schema",  # schema | object (DeepSeek API supports only "object")
 }
 
 ANTHROPIC_MODELS = [
-    {"id": "claude-opus-5-5", "label": "Claude Opus 5.5 — максимальная точность"},
-    {"id": "claude-sonnet-5-5", "label": "Claude Sonnet 5.5 — быстрее и дешевле"},
-    {"id": "claude-haiku-5-5", "label": "Claude Haiku 5.5 — самый дешёвый"},
+    {"id": "claude-opus-5-5", "label": "Claude Opus 5.5: максимальная точность"},
+    {"id": "claude-sonnet-5-5", "label": "Claude Sonnet 5.5: быстрее и дешевле"},
+    {"id": "claude-haiku-5-5", "label": "Claude Haiku 5.5: самый дешёвый"},
 ]
 
 # USD per 1M tokens: input, output, cache read. Cache write (5 min) = 1.25 x input.
