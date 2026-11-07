@@ -121,6 +121,159 @@ export function segmented(options, value, onChange, { label, disabled } = {}) {
   return box;
 }
 
+/* ---------- выпадающие списки: свой список вместо системного ----------
+ * Нативный <select> остаётся в разметке: значение, change, disabled и подписи работают как раньше,
+ * подменяется только раскрывающийся список. На сенсорных экранах остаётся системный выбор. */
+
+let pick = null;
+
+function pickHost(sel) {
+  return sel.closest('dialog, .pop, .bsheet, .sheet') || document.body;
+}
+
+function closePick({ focus = false } = {}) {
+  if (!pick) return;
+  const { sel, el } = pick;
+  pick = null;
+  sel.classList.remove('is-open');
+  sel.setAttribute('aria-expanded', 'false');
+  try { if (el.matches(':popover-open')) el.hidePopover(); } catch { /* без Popover API */ }
+  el.remove();
+  if (focus) sel.focus({ preventScroll: true });
+}
+
+function placePick(sel, el) {
+  const r = sel.getBoundingClientRect();
+  const vh = window.innerHeight;
+  const below = vh - r.bottom - 12;
+  const above = r.top - 12;
+  const up = below < 220 && above > below;
+  el.style.minWidth = `${Math.round(r.width)}px`;
+  el.style.maxHeight = `${Math.max(120, Math.min(340, up ? above : below))}px`;
+  const w = el.offsetWidth;
+  el.style.left = `${Math.round(Math.max(8, Math.min(r.left, window.innerWidth - w - 8)))}px`;
+  el.style.top = up ? `${Math.round(r.top - el.offsetHeight - 4)}px` : `${Math.round(r.bottom + 4)}px`;
+  el.classList.toggle('pick--up', up);
+}
+
+function openPick(sel) {
+  closePick();
+  const opts = [...sel.options].filter((o) => !o.hidden);
+  if (!opts.length) return;
+  const el = h('div', { class: ['pick', sel.classList.contains('input--sm') && 'pick--sm'], role: 'listbox', 'aria-label': sel.getAttribute('aria-label') || null });
+  const items = [];
+  let lastGroup = null;
+  for (const o of opts) {
+    const g = o.parentElement && o.parentElement.tagName === 'OPTGROUP' ? o.parentElement : null;
+    if (g && g !== lastGroup) el.append(h('div', { class: 'pick__group', role: 'presentation' }, g.label));
+    lastGroup = g;
+    const it = h('div', {
+      class: ['pick__opt', o.selected && 'is-sel'], role: 'option',
+      'aria-selected': String(o.selected), 'aria-disabled': o.disabled ? 'true' : null,
+    }, h('span', { class: 'pick__label' }, o.textContent), h('span', { class: 'pick__check', 'aria-hidden': 'true' }, o.selected ? icon('check', 14) : null));
+    const i = items.length;
+    it.addEventListener('mousedown', (e) => e.preventDefault());
+    it.addEventListener('mousemove', () => { if (pick && pick.idx !== i) setActive(i, false); });
+    it.addEventListener('click', () => choose(i));
+    items.push({ it, o });
+    el.append(it);
+  }
+  const setActive = (i, scroll = true) => {
+    if (!items[i] || items[i].o.disabled) return;
+    if (pick.idx >= 0 && items[pick.idx]) items[pick.idx].it.classList.remove('is-active');
+    pick.idx = i;
+    items[i].it.classList.add('is-active');
+    if (scroll) items[i].it.scrollIntoView({ block: 'nearest' });
+  };
+  const choose = (i) => {
+    const x = items[i];
+    if (!x || x.o.disabled) return;
+    const changed = sel.value !== x.o.value;
+    sel.value = x.o.value;
+    closePick({ focus: true });
+    if (changed) {
+      sel.dispatchEvent(new Event('input', { bubbles: true }));
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  };
+  pick = { sel, el, items, idx: -1, setActive, choose, typed: '', typedAt: 0 };
+  pickHost(sel).append(el);
+  let top = false;
+  if (typeof el.showPopover === 'function') {
+    el.setAttribute('popover', 'manual');
+    try { el.showPopover(); top = true; } catch { /* остаётся обычным слоем */ }
+  }
+  if (!top) el.classList.add('pick--layer');
+  placePick(sel, el);
+  sel.classList.add('is-open');
+  sel.setAttribute('aria-expanded', 'true');
+  const cur = items.findIndex((x) => x.o.selected);
+  setActive(cur >= 0 ? cur : items.findIndex((x) => !x.o.disabled));
+  if (pick.idx >= 0) items[pick.idx].it.scrollIntoView({ block: 'center' });
+}
+
+function stepPick(dir) {
+  const { items, idx } = pick;
+  for (let i = idx + dir; i >= 0 && i < items.length; i += dir) {
+    if (!items[i].o.disabled) { pick.setActive(i); return; }
+  }
+}
+
+const pickable = (t) => t instanceof HTMLSelectElement && !t.multiple && !(t.size > 1) && !t.disabled && !mq('(hover: none)').matches;
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('mousedown', (e) => {
+    const sel = e.target instanceof HTMLSelectElement ? e.target : null;
+    if (pick) {
+      if (pick.el.contains(e.target)) return;
+      const same = sel === pick.sel;
+      closePick();
+      if (same) { e.preventDefault(); return; }
+    }
+    if (!sel || e.button !== 0 || !pickable(sel)) return;
+    e.preventDefault();
+    sel.focus({ preventScroll: true });
+    openPick(sel);
+  }, true);
+
+  document.addEventListener('keydown', (e) => {
+    const t = e.target;
+    if (!pick) {
+      if (!pickable(t)) return;
+      const open = e.key === ' ' || e.key === 'Enter' || e.key === 'F4' || (e.altKey && (e.key === 'ArrowDown' || e.key === 'ArrowUp'));
+      if (!open) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      openPick(t);
+      return;
+    }
+    const k = e.key;
+    let handled = true;
+    if (k === 'ArrowDown') stepPick(1);
+    else if (k === 'ArrowUp') stepPick(-1);
+    else if (k === 'Home') { pick.idx = -1; stepPick(1); }
+    else if (k === 'End') { pick.idx = pick.items.length; stepPick(-1); }
+    else if (k === 'PageDown') { for (let i = 0; i < 8; i++) stepPick(1); }
+    else if (k === 'PageUp') { for (let i = 0; i < 8; i++) stepPick(-1); }
+    else if (k === 'Enter' || k === ' ') pick.choose(pick.idx);
+    else if (k === 'Escape') closePick({ focus: true });
+    else if (k === 'Tab') { closePick(); handled = false; }
+    else if (k.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      const now = Date.now();
+      pick.typed = (now - pick.typedAt < 700 ? pick.typed : '') + k.toLowerCase();
+      pick.typedAt = now;
+      const i = pick.items.findIndex((x) => !x.o.disabled && x.o.textContent.trim().toLowerCase().startsWith(pick.typed));
+      if (i >= 0) pick.setActive(i);
+    } else handled = false;
+    if (handled) { e.preventDefault(); e.stopImmediatePropagation(); }
+  }, true);
+
+  window.addEventListener('scroll', (e) => { if (pick && !pick.el.contains(e.target)) closePick(); }, true);
+  window.addEventListener('resize', () => closePick());
+  window.addEventListener('blur', () => closePick());
+  window.addEventListener('hashchange', () => closePick());
+}
+
 /* ---------- prefs ---------- */
 
 export const prefs = {
@@ -460,7 +613,7 @@ export function keysBlocked(e) {
   if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return true;
   const t = e.target;
   if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return true;
-  return !!document.querySelector('dialog[open], .pop, .palette, .bsheet');
+  return !!document.querySelector('dialog[open], .pop, .palette, .bsheet, .pick');
 }
 
 /**

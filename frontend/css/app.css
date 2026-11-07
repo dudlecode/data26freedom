@@ -209,11 +209,66 @@ select.input {
   background-repeat: no-repeat; background-position: right 8px center; background-size: 14px;
 }
 select.input:disabled { cursor: default; }
+select.input:not(:disabled):hover { background-color: var(--hover); }
+select.input.is-open {
+  border-color: var(--primary); box-shadow: var(--focus-ring);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 10l4-4 4 4' fill='none' stroke='%230B7A3B' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+/* свой раскрывающийся список для select (ui.js, openPick) */
+.pick {
+  position: fixed; inset: auto; margin: 0; z-index: 70; box-sizing: border-box;
+  width: max-content; height: auto; min-width: 160px; max-width: min(440px, calc(100vw - 16px));
+  overflow-y: auto; overscroll-behavior: contain; padding: 4px;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--r-surf); box-shadow: var(--shadow-pop);
+  animation: pick-in 140ms var(--ease-out); transform-origin: top center;
+  scrollbar-width: thin;
+}
+.pick--up { transform-origin: bottom center; }
+.pick--layer { z-index: 500; }
+@keyframes pick-in { from { opacity: 0; transform: translateY(calc(var(--m-rise) * -1)) scale(var(--m-pop)); } }
+.pick--up { animation-name: pick-in-up; }
+@keyframes pick-in-up { from { opacity: 0; transform: translateY(var(--m-rise)) scale(var(--m-pop)); } }
+.pick__opt {
+  display: flex; align-items: center; gap: 12px; min-height: 32px; padding: 6px 8px 6px 10px; border-radius: 4px;
+  font-size: var(--fs-14); line-height: 1.35; cursor: pointer; user-select: none;
+  transition: background-color var(--d-press) ease;
+}
+.pick--sm .pick__opt { min-height: 30px; font-size: var(--fs-13); }
+.pick__opt.is-active { background: var(--hover); }
+.pick__opt.is-sel { background: var(--selected-bg); font-weight: 600; }
+.pick__opt.is-sel.is-active { background: #DDF0E3; }
+.pick__opt[aria-disabled="true"] { color: var(--text-disabled); cursor: default; background: none; }
+.pick__label { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.pick__check { display: inline-flex; width: 14px; flex: none; color: var(--primary); }
+.pick__group { padding: 8px 10px 4px; font-size: var(--fs-12); font-weight: 600; color: var(--text-2); }
+.pick__group:not(:first-child) { margin-top: 4px; border-top: 1px solid var(--border); }
 .input--sm { height: 28px; font-size: var(--fs-13); }
 .input--auto { width: auto; }
 .input--num { width: 88px; }
 .input--code { width: 72px; }
 input[type="checkbox"], input[type="radio"] { width: 16px; height: 16px; margin: 0; accent-color: var(--primary); cursor: pointer; flex: none; }
+input[type="checkbox"], input[type="radio"] {
+  appearance: none; -webkit-appearance: none; display: inline-grid; place-content: center; vertical-align: middle;
+  border: 1.5px solid var(--border-strong); background: var(--surface) center / 100% no-repeat;
+  transition: background-color var(--d-press) ease, border-color var(--d-press) ease, box-shadow var(--d-press) ease;
+}
+input[type="checkbox"] { border-radius: 4px; }
+input[type="radio"] { border-radius: 50%; }
+input[type="checkbox"]:hover:not(:disabled), input[type="radio"]:hover:not(:disabled) { border-color: var(--primary); }
+input[type="checkbox"]:focus-visible, input[type="radio"]:focus-visible { outline: none; box-shadow: var(--focus-ring); border-color: var(--primary); }
+input[type="checkbox"]:checked, input[type="checkbox"]:indeterminate { border-color: var(--primary); background-color: var(--primary); }
+input[type="checkbox"]:checked {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 8.4l2.6 2.6L12 5.4' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+input[type="checkbox"]:indeterminate {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4.5 8h7' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E");
+}
+input[type="radio"]:checked { border-color: var(--primary); background-image: radial-gradient(circle, var(--primary) 0 3.5px, transparent 4px); }
+input[type="checkbox"]:disabled, input[type="radio"]:disabled { cursor: default; opacity: 0.5; }
+input[type="number"] { -moz-appearance: textfield; }
+input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 input:disabled { cursor: default; }
 
 .field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
