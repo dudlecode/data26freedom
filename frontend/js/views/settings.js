@@ -1,27 +1,30 @@
-// Настройки: провайдер и модель, число прогонов, параллельность, локальная модель, ключ Claude API.
+// Настройки: модель оценки, локальная модель, ключ Claude API. Сохранять может только супервайзер.
 
 import { api } from '../api.js';
-import { h, clear, icon, button, fmt, toast, toastError, errorState, skeleton, field, select } from '../ui.js';
+import { h, clear, icon, button, fmt, toast, errorState, skeleton, field, select, segmented, withBusy, pageHeader, fetchEstimate, plural } from '../ui.js';
+import { can, roleHint } from '../session.js';
 
-const COST_PER_RUN = { 'claude-opus-5-5': 0.08, 'claude-sonnet-5-5': 0.04, 'claude-haiku-5-5': 0.002 };
-const EFFORT_LABELS = { low: 'Низкий — быстро', medium: 'Средний', high: 'Высокий — рекомендуется', xhigh: 'Очень высокий', max: 'Максимальный' };
+const EFFORT_LABELS = { low: 'Низкий, быстрее', medium: 'Средний', high: 'Высокий, рекомендуется', xhigh: 'Очень высокий', max: 'Максимальный' };
 
 export async function mount(root, { ctx }) {
   ctx.setTitle('Настройки');
-  root.append(h('div', { class: 'page-head' },
-    h('div', null,
-      h('h1', { class: 'page-title' }, 'Настройки'),
-      h('p', { class: 'page-sub' }, 'Модель для оценки, число независимых прогонов и доступ к Claude API.'))));
-  const body = h('div', { class: 'settings-grid' }, h('div', { class: 'card pad' }, skeleton(8)));
-  root.append(body);
+  const editable = can('manage');
+  const body = h('div', { class: 'content' }, h('div', { class: 'panel' }, skeleton(8)));
+  root.append(pageHeader({ title: 'Настройки', meta: editable ? 'Применяются к новым оценкам' : null }), body);
+  let snapshot = null;
+  let setSize = 0;
+  let current = () => null;
+  ctx.setLeaveGuard(() => !snapshot || JSON.stringify(current()) === snapshot);
 
   async function load() {
     let data;
     let key;
     try {
-      [data, key] = await Promise.all([api.settings(), api.anthropicKey().catch(() => null)]);
+      let st;
+      [data, key, st] = await Promise.all([api.settings(), api.anthropicKey().catch(() => null), api.stats().catch(() => null)]);
+      setSize = st && st.dialogs ? st.dialogs : 0;
     } catch (e) {
-      clear(body).append(errorState(e, load));
+      clear(body).append(h('div', { class: 'panel' }, errorState(e, load)));
       return;
     }
     render(data, key);
@@ -30,140 +33,148 @@ export async function mount(root, { ctx }) {
   function render(data, key) {
     clear(body);
     const s = { ...(data.settings || {}) };
+    const dis = !editable;
     const models = data.models || [];
     const efforts = data.efforts || ['low', 'medium', 'high', 'xhigh', 'max'];
-    const providers = data.providers || [{ id: 'anthropic', label: 'Claude (Anthropic)' }, { id: 'openai_compat', label: 'Локальная модель (OpenAI-compatible)' }];
+    const providers = data.providers || [{ id: 'anthropic', label: 'Claude (Anthropic API)' }, { id: 'openai_compat', label: 'Локальная модель' }];
 
-    const providerSel = select(providers.map((p) => ({ value: p.id, label: p.label })), s.provider);
-    const modelSel = select(models.map((m) => ({ value: m.id, label: m.label || m.id })), s.model);
+    const providerSel = select(providers.map((p) => ({ value: p.id, label: p.label })), s.provider, { disabled: dis });
+    const modelSel = select(models.map((m) => ({ value: m.id, label: m.label || m.id })), s.model, { disabled: dis });
     if (s.model && !models.some((m) => m.id === s.model)) modelSel.append(h('option', { value: s.model, selected: true }, s.model));
-    const effortSel = select(efforts.map((e) => ({ value: e, label: EFFORT_LABELS[e] || e })), s.effort);
-    const votesBox = h('div', { class: 'segmented segmented--num', role: 'radiogroup', 'aria-label': 'Число прогонов' });
+    const effortSel = select(efforts.map((e) => ({ value: e, label: EFFORT_LABELS[e] || e })), s.effort, { disabled: dis });
     let votes = Number(s.votes) || 3;
-    const concIn = h('input', { class: 'input input--code', type: 'number', min: 1, max: 32, value: s.concurrency ?? 4 });
-    const baseIn = h('input', { class: 'input', value: s.local_base_url || '', placeholder: 'http://localhost:11434/v1' });
-    const localModelIn = h('input', { class: 'input', value: s.local_model || '', placeholder: 'qwen3:30b' });
-    const jsonSel = select([{ value: 'schema', label: 'JSON Schema (строгая схема)' }, { value: 'object', label: 'JSON object (для DeepSeek и похожих)' }], s.local_json_mode || 'schema');
-    const costNote = h('p', { class: 'cost-note' });
+    const voteOpts = [1, 2, 3, 4, 5];
+    if (votes > 5) voteOpts.push(votes);
+    const votesSeg = segmented(voteOpts.map((v) => ({ value: v, label: String(v) })), votes, (v) => { votes = Number(v); renderCost(); }, { label: 'Прогонов на диалог', disabled: dis });
+    const concIn = h('input', { class: 'input input--num', type: 'number', min: 1, max: 32, value: s.concurrency ?? 4, disabled: dis });
+    const concHint = h('span', { class: 'field__hint' }, 'От 1 до 32.');
+    concIn.addEventListener('input', () => {
+      const v = Number(concIn.value);
+      concHint.className = v && (v < 1 || v > 32) ? 'field__error' : 'field__hint';
+      concHint.textContent = v && (v < 1 || v > 32) ? `Будет сохранено ${Math.max(1, Math.min(32, Math.round(v)))}: допустимо от 1 до 32.` : 'От 1 до 32.';
+    });
+    const baseIn = h('input', { class: 'input', value: s.local_base_url || '', placeholder: 'http://localhost:11434/v1', disabled: dis });
+    const localModelIn = h('input', { class: 'input', value: s.local_model || '', placeholder: 'qwen3-cqa', disabled: dis });
+    const jsonSel = select([{ value: 'schema', label: 'JSON Schema, строгая схема' }, { value: 'object', label: 'JSON object, для DeepSeek и похожих' }], s.local_json_mode || 'schema', { disabled: dis });
+    const costNote = h('p', { class: 'field__hint' });
+    const msg = h('span', { class: 'inline-msg', role: 'status' });
+    const claudeBox = h('div', { class: 'fstack' });
+    const dirtyNote = h('span', { class: 't-13 t-warn', hidden: true }, 'Есть несохранённые изменения');
 
-    function renderVotes() {
-      clear(votesBox);
-      // сервер допускает 1–9 прогонов; показываем 1–5 и сохранённое значение, если оно больше
-      const opts = [1, 2, 3, 4, 5];
-      if (votes > 5 && !opts.includes(votes)) opts.push(votes);
-      for (const i of opts) {
-        votesBox.append(h('button', { type: 'button', role: 'radio', 'aria-checked': String(i === votes), class: i === votes ? 'is-on' : '', onclick: () => { votes = i; renderVotes(); renderCost(); } }, String(i)));
-      }
-    }
+    let costSeq = 0;
     function renderCost() {
-      clear(costNote);
-      if (providerSel.value === 'openai_compat') {
-        costNote.append(icon('info', 14), h('span', null, 'Локальная модель: затрат на API нет, скорость и точность зависят от модели и железа.'));
+      const local = providerSel.value === 'openai_compat';
+      claudeBox.hidden = local;
+      localRow.hidden = !local;
+      if (local) {
+        costNote.textContent = 'Локальная модель: затрат на API нет.';
         return;
       }
-      const per = COST_PER_RUN[modelSel.value] ?? 0.08;
-      costNote.append(icon('info', 14), h('span', null,
-        `Ориентировочно ${fmt.money(per)} за прогон × ${votes} = ${fmt.money(per * votes)} за диалог. `
-        + `Набор из 65 диалогов — около ${fmt.money(per * votes * 65)}. На Opus 5.5 прогон стоит примерно $0,08; кэш промпта снижает цену повторных прогонов.`));
+      const seq = ++costSeq;
+      const v = votes;
+      fetchEstimate(api, { provider: 'anthropic', model: modelSel.value, votes: v }, setSize || 1).then((est) => {
+        if (seq !== costSeq) return;
+        if (!est) { costNote.textContent = ''; return; }
+        const runs = v === 1 ? 'прогоне' : 'прогонах';
+        const basis = est.basis && est.basis.source === 'history' ? `По фактической стоимости ${est.basis.evaluations} ${plural(est.basis.evaluations, 'оценки', 'оценок', 'оценок')} этой модели.` : 'Оценка по тарифу, истории оценок этой моделью пока нет.';
+        const set = setSize > 1 ? `, ${fmt.money(est.cost)} за ${setSize} диалогов в базе` : '';
+        costNote.textContent = `Около ${fmt.money(est.perDialog)} за диалог при ${v} ${runs}${set}. ${basis}${v > 1 ? ' Повторные прогоны читают промпт из кэша.' : ''}`;
+      });
     }
-    const claudeBlock = h('div', { class: 'form-grid' },
-      field('Модель Claude', modelSel),
-      field('Уровень рассуждений', effortSel, { hint: 'Выше — точнее, но дольше и дороже.' }));
-    const localBlock = h('div', { class: 'form-grid' },
-      h('div', { class: 'form-grid__full' }, field('Адрес сервера (base_url)', baseIn, { hint: 'Ollama, vLLM, LM Studio или любой OpenAI-совместимый API.' })),
-      field('Модель', localModelIn),
-      field('Режим JSON', jsonSel));
-    const syncProvider = () => {
-      claudeBlock.hidden = providerSel.value !== 'anthropic';
-      localBlock.hidden = providerSel.value === 'anthropic';
-      renderCost();
-    };
-    providerSel.addEventListener('change', syncProvider);
+    providerSel.addEventListener('change', renderCost);
     modelSel.addEventListener('change', renderCost);
+    current = () => ({ provider: providerSel.value, model: modelSel.value, effort: effortSel.value, votes, concurrency: Number(concIn.value), base: baseIn.value, lm: localModelIn.value, json: jsonSel.value });
+    const markDirty = () => { dirtyNote.hidden = JSON.stringify(current()) === snapshot; };
 
-    const saveBtn = button('Сохранить настройки', {
-      kind: 'primary', iconName: 'check',
-      onClick: async () => {
+    const saveBtn = button('Сохранить', {
+      kind: 'primary',
+      onClick: (e) => withBusy(e.currentTarget, async () => {
+        msg.className = 'inline-msg';
+        msg.textContent = '';
         const conc = Math.max(1, Math.min(32, Number(concIn.value) || 1));
         const partial = {
           provider: providerSel.value, model: modelSel.value, effort: effortSel.value, votes, concurrency: conc,
           local_base_url: baseIn.value.trim(), local_model: localModelIn.value.trim(), local_json_mode: jsonSel.value,
         };
-        // backend отклоняет пустые строки — пустое поле означает «не менять»
         for (const k of ['local_base_url', 'local_model']) if (!partial[k]) delete partial[k];
-        saveBtn.disabled = true;
         try {
           await api.saveSettings(partial);
-          toast('Настройки сохранены', 'success');
-        } catch (e) { toastError(e, 'Настройки не сохранены'); } finally { saveBtn.disabled = false; }
-      },
+          concIn.value = String(conc);
+          snapshot = JSON.stringify(current());
+          markDirty();
+          toast('Настройки сохранены. Новые оценки пойдут с ними.', 'success');
+        } catch (err) {
+          msg.classList.add('is-error');
+          msg.textContent = err.message;
+        }
+      }),
     });
 
-    body.append(h('section', { class: 'card pad settings-card' },
-      h('h3', { class: 'card__title' }, icon('spark', 16), 'Модель оценки'),
-      h('div', { class: 'form-stack' },
-        field('Провайдер', providerSel),
-        claudeBlock,
-        localBlock,
-        h('div', { class: 'form-grid' },
-          field('Прогонов на диалог', votesBox, { hint: 'Независимые прогоны с голосованием по каждому критерию. 3 — баланс точности и цены.' }),
-          field('Параллельно диалогов', concIn, { hint: 'Сколько диалогов оценивается одновременно.' })),
-        costNote,
-        h('div', { class: 'form-actions' }, saveBtn))));
-
     /* ключ */
-    const keyStatus = h('div', { class: 'key-status' });
+    const keyLine = h('div', { class: 'key-line' });
     const renderKey = (k) => {
-      clear(keyStatus);
+      clear(keyLine);
       const ok = k && k.configured;
-      keyStatus.append(
-        h('span', { class: ['key-status__dot', ok ? 'is-ok' : 'is-missing'] }),
-        h('div', null,
-          h('div', { class: 'key-status__title' }, ok ? 'Ключ задан' : 'Ключ не задан'),
-          h('div', { class: 'muted small' }, ok ? (k.masked || 'sk-ant-…') : 'Без ключа оценка через Claude недоступна.')));
+      keyLine.append(h('span', { class: ['dot', ok ? 'dot--ok' : 'dot--off'], 'aria-hidden': 'true' }),
+        h('span', null, ok ? `Ключ задан: ${k.masked || 'скрыт'}` : 'Ключ не задан'));
     };
     renderKey(key || { configured: data.has_anthropic_key });
-    const keyIn = h('input', { class: 'input', type: 'password', autocomplete: 'off', spellcheck: 'false', placeholder: 'sk-ant-…', 'aria-label': 'Ключ Claude API' });
-    const msg = h('p', { class: 'key-msg', role: 'status' });
+    const keyIn = h('input', { class: 'input', type: 'password', autocomplete: 'off', spellcheck: 'false', placeholder: 'sk-ant-', 'aria-label': 'Новый ключ Claude API', disabled: dis });
+    const keyMsg = h('span', { class: 'inline-msg', role: 'status' });
     const keyBtn = button('Сохранить и проверить', {
-      kind: 'primary', iconName: 'key',
-      onClick: async () => {
+      kind: 'secondary',
+      onClick: (e) => withBusy(e.currentTarget, async () => {
         const v = keyIn.value.trim();
-        if (!v) { toast('Вставьте ключ', 'error'); keyIn.focus(); return; }
-        keyBtn.disabled = true;
-        keyBtn.classList.add('is-busy');
-        msg.className = 'key-msg';
-        msg.textContent = 'Проверяем ключ…';
+        keyMsg.className = 'inline-msg';
+        if (!v) { keyMsg.classList.add('is-error'); keyMsg.textContent = 'Вставьте ключ.'; keyIn.focus(); return; }
+        keyMsg.textContent = 'Проверка ключа';
         try {
           const r = await api.saveAnthropicKey(v);
           keyIn.value = '';
-          msg.classList.add('is-ok');
-          msg.textContent = (r && (r.message || r.detail)) || 'Ключ принят и сохранён.';
+          keyMsg.classList.add('is-ok');
+          keyMsg.textContent = 'Ключ принят и сохранён на сервере.';
           renderKey(r && 'configured' in r ? r : await api.anthropicKey().catch(() => ({ configured: true })));
           ctx.refreshHealth();
-        } catch (e) {
-          msg.classList.add('is-error');
-          msg.textContent = e.message;
-        } finally {
-          keyBtn.disabled = false;
-          keyBtn.classList.remove('is-busy');
+        } catch (err) {
+          keyMsg.classList.add('is-error');
+          keyMsg.textContent = err.message;
         }
-      },
+      }),
     });
-    keyIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') keyBtn.click(); });
+    keyIn.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !keyBtn.disabled) keyBtn.click(); });
 
-    body.append(h('section', { class: 'card pad settings-card' },
-      h('h3', { class: 'card__title' }, icon('key', 16), 'Ключ Claude API'),
-      keyStatus,
-      h('div', { class: 'form-stack' },
-        field('Новый ключ', keyIn, { hint: 'Ключ проверяется запросом списка моделей (без затрат токенов) и сохраняется только на сервере, в файле .env. В браузер он не возвращается.' }),
-        h('div', { class: 'form-actions' }, keyBtn),
-        msg)));
+    const row = (title, desc, content) => h('section', { class: 'srow' },
+      h('div', null, h('h2', { class: 'srow__title' }, title), desc ? h('p', { class: 'srow__desc' }, desc) : null),
+      h('div', { class: 'srow__body fstack' }, content));
 
-    renderVotes();
-    syncProvider();
+    claudeBox.append(field('Модель Claude', modelSel), field('Уровень рассуждений', effortSel));
+    const localRow = row('Локальная модель', 'OpenAI-совместимый сервер: Ollama, vLLM, LM Studio.', [
+      field('Адрес сервера', baseIn, { hint: 'По умолчанию Ollama на этом компьютере.' }),
+      h('div', { class: 'fgrid' }, field('Модель', localModelIn, { hint: 'qwen3-cqa в Ollama' }), field('Режим JSON', jsonSel)),
+    ]);
+    body.append(h('div', { class: ['panel', 'settings', dis && 'is-readonly'], style: { maxWidth: '980px' } },
+      dis ? h('div', { class: 'ed-note' }, icon('eye', 16), `Только просмотр. ${roleHint('manage')}.`) : null,
+      row('Модель оценки', 'Провайдер и модель для новых оценок.', [
+        field('Провайдер', providerSel),
+        claudeBox,
+        h('div', { class: 'fgrid' },
+          field('Прогонов на диалог', votesSeg, { hint: 'Независимые прогоны, голосование по каждому критерию.' }),
+          h('div', null, field('Параллельно диалогов', concIn), concHint)),
+        costNote,
+      ]),
+      localRow,
+      editable ? row('Ключ Claude API', 'Хранится только на сервере, в браузер не возвращается.', [
+        keyLine,
+        field('Новый ключ', keyIn),
+        h('div', { class: 'factions' }, keyBtn, keyMsg),
+      ]) : null,
+      editable ? h('div', { class: 'settings__foot' }, dirtyNote, h('span', { class: 'spacer' }), msg, saveBtn) : null));
+    renderCost();
+    snapshot = JSON.stringify(current());
+    for (const el of [providerSel, modelSel, effortSel, concIn, baseIn, localModelIn, jsonSel]) { el.addEventListener('input', markDirty); el.addEventListener('change', markDirty); }
+    votesSeg.addEventListener('click', () => setTimeout(markDirty, 0));
   }
 
   await load();
-  return undefined;
+  return () => ctx.setLeaveGuard(null);
 }

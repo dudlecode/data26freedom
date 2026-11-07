@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import time
 from dataclasses import dataclass, field
@@ -23,6 +24,23 @@ from . import config
 
 class ProviderError(RuntimeError):
     pass
+
+
+class _GrammarTooLarge(Exception):
+    """The API could not compile the strict output schema."""
+
+
+def api_message(e: Exception) -> str:
+    """The human part of an Anthropic API error, without the JSON envelope and request id."""
+    body = getattr(e, "body", None)
+    if isinstance(body, dict):
+        inner = body.get("error") if isinstance(body.get("error"), dict) else body
+        msg = inner.get("message") if isinstance(inner, dict) else None
+        if msg:
+            return str(msg)[:400]
+    text = str(getattr(e, "message", "") or e)
+    m = re.search(r"'message':\s*'([^']+)'", text)
+    return (m.group(1) if m else text)[:400]
 
 
 @dataclass
@@ -83,19 +101,19 @@ class AnthropicProvider:
         )
         t0 = time.perf_counter()
         try:
-            resp = await self._create(kwargs)
-        except anthropic.AuthenticationError as e:
-            raise ProviderError("Ключ Claude API не принят (401). Проверьте CQA_ANTHROPIC_API_KEY.") from e
-        except anthropic.PermissionDeniedError as e:
-            raise ProviderError(f"Нет доступа к модели {self.model}: {e.message}") from e
-        except anthropic.NotFoundError as e:
-            raise ProviderError(f"Модель {self.model} не найдена: {e.message}") from e
-        except anthropic.RateLimitError as e:
-            raise ProviderError("Превышен лимит запросов Claude API (429). Уменьшите параллельность.") from e
-        except anthropic.APIStatusError as e:
-            raise ProviderError(f"Ошибка Claude API {e.status_code}: {e.message}") from e
-        except anthropic.APIConnectionError as e:
-            raise ProviderError("Нет соединения с Claude API.") from e
+            resp = await self._call(kwargs)
+        except _GrammarTooLarge:
+            # The strict schema did not compile: ask for the same JSON through the prompt
+            # instead. The evaluator validates and normalizes every value anyway.
+            plain_kwargs = dict(kwargs)
+            plain_kwargs["output_config"] = {"effort": self.effort}
+            plain_kwargs["system"] = [{
+                "type": "text",
+                "text": system + "\n\nВерните только JSON-объект без пояснений и без markdown, строго по схеме:\n"
+                + json.dumps(schema, ensure_ascii=False),
+                "cache_control": {"type": "ephemeral"},
+            }]
+            resp = await self._call(plain_kwargs)
         duration = int((time.perf_counter() - t0) * 1000)
 
         if resp.stop_reason == "refusal":
@@ -121,6 +139,27 @@ class AnthropicProvider:
             provider=self.name,
         )
 
+    async def _call(self, kwargs: dict[str, Any]):
+        try:
+            return await self._create(kwargs)
+        except anthropic.AuthenticationError as e:
+            raise ProviderError("Ключ Claude API не принят (401). Проверьте CQA_ANTHROPIC_API_KEY.") from e
+        except anthropic.PermissionDeniedError as e:
+            raise ProviderError(f"Нет доступа к модели {self.model}. Подробности: {api_message(e)}") from e
+        except anthropic.NotFoundError as e:
+            raise ProviderError(f"Модель {self.model} не найдена. Подробности: {api_message(e)}") from e
+        except anthropic.RateLimitError as e:
+            raise ProviderError("Превышен лимит запросов Claude API (429). Уменьшите параллельность.") from e
+        except anthropic.BadRequestError as e:
+            msg = api_message(e)
+            if "grammar" in msg.lower() and "format" in (kwargs.get("output_config") or {}):
+                raise _GrammarTooLarge(msg) from e
+            raise ProviderError(f"Claude API отклонил запрос (код 400). Подробности: {msg}") from e
+        except anthropic.APIStatusError as e:
+            raise ProviderError(f"Ошибка Claude API (код {e.status_code}). Подробности: {api_message(e)}") from e
+        except anthropic.APIConnectionError as e:
+            raise ProviderError("Нет соединения с Claude API.") from e
+
     async def _create(self, kwargs: dict[str, Any]):
         if self.use_fallbacks:
             try:
@@ -132,6 +171,34 @@ class AnthropicProvider:
                     raise
                 self.use_fallbacks = False  # endpoint/account without fallbacks -> plain request
         return await self.client.beta.messages.create(**kwargs)
+
+
+_ID_TOKENS: dict[str, tuple[str, float]] = {}
+_METADATA_IDENTITY = "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity"
+
+
+async def gcp_id_token(audience: str) -> str:
+    """Google-signed ID token from the VM metadata server, for a private Cloud Run service."""
+    tok, exp = _ID_TOKENS.get(audience, ("", 0.0))
+    if tok and exp > time.time() + 60:
+        return tok
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(_METADATA_IDENTITY, params={"audience": audience, "format": "full"},
+                                 headers={"Metadata-Flavor": "Google"})
+            r.raise_for_status()
+    except httpx.HTTPError as e:
+        raise ProviderError(f"Не удалось получить токен Google Cloud для {audience}: {e}") from e
+    tok = r.text.strip()
+    _ID_TOKENS[audience] = (tok, time.time() + 50 * 60)
+    return tok
+
+
+def _needs_gcp_auth(base_url: str) -> bool:
+    mode = os.getenv("CQA_OPENAI_AUTH", "auto").lower()
+    if mode == "gcp":
+        return True
+    return mode == "auto" and ".run.app" in base_url
 
 
 class OpenAICompatProvider:
@@ -163,12 +230,17 @@ class OpenAICompatProvider:
             "response_format": response_format,
         }
         t0 = time.perf_counter()
+        token = self.api_key
+        if _needs_gcp_auth(self.base_url):
+            parts = httpx.URL(self.base_url)
+            token = await gcp_id_token(f"{parts.scheme}://{parts.host}")
         try:
-            async with httpx.AsyncClient(timeout=900.0) as client:
+            # Long timeout: a scaled-to-zero GPU service loads the model on the first request.
+            async with httpx.AsyncClient(timeout=1200.0) as client:
                 r = await client.post(
                     f"{self.base_url}/chat/completions",
                     json=body,
-                    headers={"Authorization": f"Bearer {self.api_key}"},
+                    headers={"Authorization": f"Bearer {token}"},
                 )
         except httpx.HTTPError as e:
             raise ProviderError(f"Нет соединения с {self.base_url}: {e}") from e
@@ -194,7 +266,7 @@ def make_provider(settings: dict[str, Any]):
     if settings.get("provider") == "openai_compat":
         return OpenAICompatProvider(
             base_url=settings.get("local_base_url") or config.OPENAI_COMPAT_BASE_URL,
-            model=settings.get("local_model") or "qwen3:30b",
+            model=settings.get("local_model") or "qwen3-cqa",
             json_mode=settings.get("local_json_mode", "schema"),
         )
     return AnthropicProvider(model=settings.get("model", "claude-opus-5-5"), effort=settings.get("effort", "high"))

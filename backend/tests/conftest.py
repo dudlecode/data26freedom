@@ -56,11 +56,8 @@ class StubProvider:
         override = self.script[run_no] if run_no < len(self.script) else {}
         if isinstance(override, Exception):
             raise override
-        crit_props = props["criteria"]["properties"]
-        criteria = {}
-        for cid, p in crit_props.items():
-            enum = p["properties"]["value"]["enum"]
-            criteria[cid] = {
+        def item(cid: str, enum: list[str]) -> dict[str, Any]:
+            return {
                 "reasoning": f"{cid}: обоснование прогона {run_no + 1} (T1).",
                 "value": override.get(cid, enum[0]),
                 "evidence_turns": [1, 2, 10_000, -3],
@@ -68,6 +65,12 @@ class StubProvider:
                 "checked_to": -1,
                 "na_reason": "",
             }
+
+        if props["criteria"]["type"] == "array":  # compact schema (many criteria)
+            ip = props["criteria"]["items"]["properties"]
+            criteria: Any = [{"criterion_id": cid, **item(cid, ["YES"])} for cid in ip["criterion_id"]["enum"]]
+        else:
+            criteria = {cid: item(cid, p["properties"]["value"]["enum"]) for cid, p in props["criteria"]["properties"].items()}
         return RunResult(
             data={"client_request": f"Запрос клиента (прогон {run_no + 1})", "criteria": criteria},
             model=self.model,
@@ -76,6 +79,12 @@ class StubProvider:
             cost_usd=0.01,
             provider=self.name,
         )
+
+
+def login_as(c: Any, role: str) -> None:
+    """Switch the TestClient session to the demo user of `role` (operator, supervisor, reviewer)."""
+    r = c.post("/api/auth/login", json={"username": role, "password": "freedom2026"})
+    assert r.status_code == 200 and r.json()["user"]["role"] == role, r.text
 
 
 @pytest.fixture
@@ -101,4 +110,4 @@ def temp_db(tmp_path, monkeypatch):
     db._conn = None
 
 
-__all__ = ["StubProvider", "ProviderError", "load_checklist"]
+__all__ = ["StubProvider", "ProviderError", "load_checklist", "login_as"]

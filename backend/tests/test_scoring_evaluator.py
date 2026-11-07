@@ -91,8 +91,8 @@ def test_aggregate_agreement_and_reasoning_source(checklist):
     assert c["value"] == "15" and c["votes"] == ["10", "15", "15"]
     assert c["agreement"] == pytest.approx(2 / 3, abs=1e-4)
     assert c["reasoning"] == "r2"  # first run that produced the winning value
-    assert c["evidence_turns"] == [3]
-    assert c["checked_range"] == [2, 5]
+    assert c["evidence_turns"] == [2]  # model's T3 (1-based) -> index 2
+    assert c["checked_range"] == [1, 4]
     assert c["na_reason"] == ""  # only for NA
     # criterion missing from every run -> default value, zero agreement
     assert out["c01"]["votes"] == [] and out["c01"]["agreement"] == 0.0
@@ -100,8 +100,10 @@ def test_aggregate_agreement_and_reasoning_source(checklist):
 
 def test_checked_range_rules():
     assert evaluator.checked_range(-1, -1, 10) is None
+    assert evaluator.checked_range(0, 0, 10) is None  # T0 does not exist in 1-based numbering
     assert evaluator.checked_range(2, 20, 10) is None
-    assert evaluator.checked_range(4, 6, 10) == [4, 6]
+    assert evaluator.checked_range(4, 6, 10) == [3, 5]
+    assert evaluator.checked_range(10, 10, 10) == [9, 9]
 
 
 # --- evaluator end-to-end -----------------------------------------------------------------
@@ -175,4 +177,86 @@ def test_median_tie_reasoning_is_labelled(checklist):
             {"criteria": {c["id"]: {"value": hi, "reasoning": "high"}}}]
     out = evaluator.aggregate({"criteria": [c]}, runs, 5)[c["id"]]
     if out["value"] not in (lo, hi):
-        assert out["reasoning"].startswith("Итог — медиана голосов")
+        assert out["reasoning"].startswith("Итог: медиана голосов")
+
+
+# --- schema size: many criteria -----------------------------------------------------------
+
+def _big_checklist(checklist, n_extra=4):
+    import copy as _copy
+    cfg = _copy.deepcopy(checklist)
+    sec = cfg["criteria"][0]["section"]
+    for i in range(n_extra):
+        cfg["criteria"].append({"id": f"c{9 + i:02d}", "code": f"{9 + i:02d}", "name": f"Доп. критерий {i + 1}",
+                                "type": "binary", "weight": 5, "section": sec, "description": "Правило.",
+                                "na_allowed": False})
+    return cfg
+
+
+def test_schema_compact_above_eight_criteria(checklist):
+    import json as _json
+    from cqa import prompting
+    strict = prompting.build_schema(checklist)
+    assert strict["properties"]["criteria"]["type"] == "object"  # 8 criteria: calibrated schema kept
+    big = _big_checklist(checklist)
+    assert len(big["criteria"]) == 12
+    sch = prompting.build_schema(big)
+    items = sch["properties"]["criteria"]["items"]
+    assert sch["properties"]["criteria"]["type"] == "array"
+    assert items["properties"]["criterion_id"]["enum"] == [c["id"] for c in big["criteria"]]
+    # constant structure: one item schema whatever the number of criteria
+    assert len(_json.dumps(prompting.build_schema(_big_checklist(checklist, 12)))) < 2 * len(_json.dumps(sch))
+    assert "criterion_id" in prompting.build_system(big)
+    assert prompting.criteria_map({"criteria": [{"criterion_id": "c01", "value": "NO"}, {"criterion_id": "c01", "value": "YES"}]}) == {
+        "c01": {"criterion_id": "c01", "value": "NO"}}
+
+
+def test_evaluate_with_twelve_criteria(checklist, dev_records):
+    big = _big_checklist(checklist)
+    rec = next(r for r in dev_records if r["conversation_id"] == "p1-ru-001")
+    stub = StubProvider(script=[{"c09": "NO", "c06": "7"}])
+    out = asyncio.run(evaluator.evaluate(rec, big, {"votes": 1}, stub))
+    res = out["result"]
+    assert set(res["criteria"]) == {c["id"] for c in big["criteria"]}
+    assert res["criteria"]["c09"]["value"] == "NO"
+    assert res["criteria"]["c06"]["value"] == "7"
+    assert res["runs"][0]["values"]["c12"] == "YES"
+    assert out["total"] is not None
+
+
+def test_api_message_strips_envelope():
+    from cqa.providers import api_message
+
+    class E(Exception):
+        body = {"type": "error", "error": {"type": "invalid_request_error", "message": "The compiled grammar is too large."}}
+    assert api_message(E()) == "The compiled grammar is too large."
+
+
+def test_provider_retries_without_strict_format_when_grammar_too_large(monkeypatch):
+    from types import SimpleNamespace
+
+    import anthropic
+    import httpx
+
+    from cqa import config, providers
+
+    monkeypatch.setattr(config, "ANTHROPIC_API_KEY", "test-key")
+    p = providers.AnthropicProvider(model="claude-test")
+    calls = []
+
+    async def fake_create(kwargs):
+        calls.append(kwargs)
+        if "format" in kwargs["output_config"]:
+            resp = httpx.Response(400, request=httpx.Request("POST", "https://api.test/v1/messages"))
+            raise anthropic.BadRequestError(
+                "Error code: 400", response=resp,
+                body={"type": "error", "error": {"message": "The compiled grammar is too large, simplify."}})
+        return SimpleNamespace(stop_reason="end_turn", model="claude-test",
+                               content=[SimpleNamespace(type="text", text='{"client_request": "x", "criteria": {}}')],
+                               usage=SimpleNamespace(input_tokens=1, output_tokens=1))
+
+    monkeypatch.setattr(p, "_create", fake_create)
+    rr = asyncio.run(p.complete_json("SYS", "USER", {"type": "object"}))
+    assert rr.data["client_request"] == "x"
+    assert len(calls) == 2 and "format" not in calls[1]["output_config"]
+    assert "строго по схеме" in calls[1]["system"][0]["text"]
