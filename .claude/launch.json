@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "cqa",
+      "runtimeExecutable": "/Users/dudlextop/data26freedom/.venv/bin/python",
+      "runtimeArgs": ["-m", "cqa"],
+      "cwd": "/Users/dudlextop/data26freedom/backend",
+      "port": 8000
+    }
+  ]
+}

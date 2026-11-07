@@ -1,0 +1,1247 @@
+{
+  "p1-ru-001": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "NO",
+      "c08": "NO"
+    },
+    "notes": {
+      "c07": "T11 only 'Пожалуйста. Хорошего вечера!' - no summary or offer of help."
+    },
+    "uncertain": []
+  },
+  "p1-ru-002": {
+    "labels": {
+      "c01": "YES",
+      "c02": "YES",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "YES",
+      "c08": "NO"
+    },
+    "notes": {
+      "c02": "T9 asks where the two tariff names were seen - genuinely missing, asked before answering.",
+      "c03": "T11/T14 only say ID is needed; client declines T12; no account data disclosed -> NA per guidance.",
+      "c07": "T18 next step + 'если вопрос останется, напишите нам' + farewell."
+    },
+    "uncertain": []
+  },
+  "p1-ru-003": {
+    "labels": {
+      "c01": "YES",
+      "c02": "YES",
+      "c03": "NA",
+      "c04": 10,
+      "c05": "NO",
+      "c06": 7,
+      "c07": "NO",
+      "c08": "NO"
+    },
+    "notes": {
+      "c02": "T10 asks app vs web (missing for tariff location); but the commission details already given (Investor, international, purchase T4/T9) are never used.",
+      "c04": "Tariff location answered T12; original commission question (T0, re-asked T13) never answered - T14 answers something else.",
+      "c05": "T14 formally closes ('Хорошего дня!') while client still waits for the commission answer.",
+      "c06": "T14 answers a different question than T13 asked.",
+      "c07": "T14 only farewell, no summary/offer."
+    },
+    "uncertain": [
+      "c02",
+      "c06"
+    ]
+  },
+  "p1-ru-004": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "NO",
+      "c08": "NO"
+    },
+    "notes": {
+      "c02": "Request complete (bank branch, in app); T9 'Вам нужны реквизиты, верно?' is a confirmation answered in the same message, not a real re-ask; could be read as re-asking known.",
+      "c07": "T13 'Отлично. Хорошего дня!' only."
+    },
+    "uncertain": [
+      "c02"
+    ]
+  },
+  "p1-ru-005": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NA",
+      "c04": 15,
+      "c05": "YES",
+      "c06": 4,
+      "c07": "YES",
+      "c08": "NO"
+    },
+    "notes": {
+      "c04": "Details path given T13; 'who charges - bank or broker' (T0) answered only indirectly at T9 (bank amount unknown), broker side never stated.",
+      "c06": "T11 vague ('сверху вниз в меню'), client had to re-ask T12 'В каком меню?'.",
+      "c07": "T15 next step (check bank fee) + farewell."
+    },
+    "uncertain": [
+      "c04"
+    ]
+  },
+  "p1-ru-006": {
+    "labels": {
+      "c01": "YES",
+      "c02": "YES",
+      "c03": "YES",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "YES",
+      "c08": "NO"
+    },
+    "notes": {
+      "c02": "T12 asks transfer currency (missing) for the case.",
+      "c03": "Identity confirmed T11 before account check/case T12.",
+      "c07": "T14 next step (answer in this chat) + farewell."
+    },
+    "uncertain": []
+  },
+  "p1-ru-007": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NA",
+      "c04": 10,
+      "c05": "NO",
+      "c06": 7,
+      "c07": "NO",
+      "c08": "NO"
+    },
+    "notes": {
+      "c04": "Path given T10; second question 'when can I retry withdrawal' (T4, re-asked T11) ignored at T12.",
+      "c05": "T12 'Путь к обновлению я указал' - dismissive, closes while client still waits.",
+      "c06": "T12 does not answer the question asked at T11.",
+      "c07": "T12 is a dismissive restatement + 'Хорошего дня!', not a summary of the resolution; a literal reading could count it as a summary."
+    },
+    "uncertain": [
+      "c07"
+    ]
+  },
+  "p1-ru-008": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "NO",
+      "c08": "NO"
+    },
+    "notes": {
+      "c07": "T13 'Пожалуйста. До свидания!' only."
+    },
+    "uncertain": []
+  },
+  "p1-ru-009": {
+    "labels": {
+      "c01": "YES",
+      "c02": "YES",
+      "c03": "NO",
+      "c04": 5,
+      "c05": "NO",
+      "c06": 4,
+      "c07": "YES",
+      "c08": "YES"
+    },
+    "notes": {
+      "c02": "T9 asks what message the app shows (missing).",
+      "c03": "T11 discloses a withdrawal restriction without ID; T13 says verification is not needed.",
+      "c04": "Restriction stated without reason, T13 points to app freezing, T15 vague 'передам на проверку' with no when/where; alt 0 (misleading) or 10.",
+      "c05": "Client's ID concern T12 dismissed at T13; closes T15 while the reason is still unanswered.",
+      "c06": "T13 off-point reply forced client to re-ask T14.",
+      "c07": "T15 has a next step + farewell literally, though the closing is formal.",
+      "c08": "(c) account restriction disclosed without identification, T11."
+    },
+    "uncertain": [
+      "c04",
+      "c07"
+    ]
+  },
+  "p1-ru-010": {
+    "labels": {
+      "c01": "YES",
+      "c02": "YES",
+      "c03": "YES",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "YES",
+      "c08": "NO"
+    },
+    "notes": {
+      "c02": "T10 asks app/web, T15 asks the security name - both missing.",
+      "c03": "Identity confirmed T14 before the position query is passed on T15.",
+      "c04": "All questions closed, but the operator never says how/where the check result will come back; alt 15.",
+      "c07": "T31 summary 'Вопрос о позиции передан' + farewell."
+    },
+    "uncertain": [
+      "c04"
+    ]
+  },
+  "p1-ru-011": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "NO",
+      "c08": "NO"
+    },
+    "notes": {
+      "c07": "T13 'Пожалуйста. Хорошего дня!' only."
+    },
+    "uncertain": []
+  },
+  "p1-ru-012": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "NA",
+      "c08": "NO"
+    },
+    "notes": {
+      "c07": "T11 connection lost 18 s after client's last message, before operator could close."
+    },
+    "uncertain": []
+  },
+  "p1-ru-013": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "YES",
+      "c08": "NO"
+    },
+    "notes": {
+      "c07": "T11 restates the solution ('нужный раздел в меню для инвесторов') + farewell; could be seen as plain politeness."
+    },
+    "uncertain": [
+      "c07"
+    ]
+  },
+  "p1-ru-014": {
+    "labels": {
+      "c01": "NO",
+      "c02": "NO",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 4,
+      "c07": "NO",
+      "c08": "NO"
+    },
+    "notes": {
+      "c01": "T9 familiar 'Привет', no name.",
+      "c02": "T9 re-asks which site; already given to bot T4.",
+      "c05": "Beyond familiarity no rudeness; client irritation T10 met with 'Понял' and the fix T11.",
+      "c06": "Familiar greeting + redundant question made the client restate T10 ('Я уже писал'); alt 7.",
+      "c07": "T13 'Хорошего дня.' only."
+    },
+    "uncertain": [
+      "c05",
+      "c06"
+    ]
+  },
+  "p1-ru-015": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "YES",
+      "c08": "NO"
+    },
+    "notes": {
+      "c07": "T11 next step (choose another login now) + thanks + farewell."
+    },
+    "uncertain": []
+  },
+  "p1-ru-016": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NO",
+      "c03": "NA",
+      "c04": 15,
+      "c05": "NO",
+      "c06": 4,
+      "c07": "NO",
+      "c08": "NO"
+    },
+    "notes": {
+      "c02": "T9 'Переустановите приложение' without knowing device/site (bot's T3 question unanswered).",
+      "c04": "Correct answer only at T13 after wrong advice T9 and vague T11; alt 20 (final answer correct).",
+      "c05": "T11 'Ну, тогда сайт.' - dismissive (guidance example).",
+      "c06": "Client had to clarify T10 and T12 because of T9/T11.",
+      "c07": "T15 'Пожалуйста, до свидания.' only."
+    },
+    "uncertain": [
+      "c04"
+    ]
+  },
+  "p1-ru-017": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NO",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "NO",
+      "c08": "NO"
+    },
+    "notes": {
+      "c02": "T10 asks if client knows the exact ticker although T9 already said 'название могу перепутать, тикер сейчас найду'; alt YES.",
+      "c07": "T14 'Рад помочь. Хорошего дня!' only."
+    },
+    "uncertain": [
+      "c02"
+    ]
+  },
+  "p1-ru-018": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NO",
+      "c03": "NA",
+      "c04": 0,
+      "c05": "NO",
+      "c06": 4,
+      "c07": "NO",
+      "c08": "NO"
+    },
+    "notes": {
+      "c02": "T9 asserts the cause without asking which bond/order.",
+      "c03": "T9 is a guess about 'ваш приказ', not data read from the account; no ID - alt NO.",
+      "c04": "T9 unverified cause ('точно биржа отменяет'), T11 'Тогда не знаю' - no substantive answer.",
+      "c05": "T11 'Тогда не знаю.' dismissive (guidance example); operator closes chat T12.",
+      "c06": "T9 vs T11 contradictory; client had to challenge T10; alt 0.",
+      "c07": "Operator closed chat T12 without farewell."
+    },
+    "uncertain": [
+      "c03",
+      "c06"
+    ]
+  },
+  "p1-ru-019": {
+    "labels": {
+      "c01": "YES",
+      "c02": "YES",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "NO",
+      "c08": "NO"
+    },
+    "notes": {
+      "c02": "T9 asks whether client has a ticker (missing).",
+      "c07": "T13 'Пожалуйста. До свидания!' only."
+    },
+    "uncertain": []
+  },
+  "p1-ru-020": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "NO",
+      "c08": "NO"
+    },
+    "notes": {
+      "c07": "T13 'Пожалуйста. Хорошего дня!' only."
+    },
+    "uncertain": []
+  },
+  "p1-ru-021": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "NO",
+      "c08": "NO"
+    },
+    "notes": {
+      "c07": "T11 'Рада помочь. До свидания!' only."
+    },
+    "uncertain": []
+  },
+  "p1-ru-022": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NA",
+      "c04": 0,
+      "c05": "NO",
+      "c06": 4,
+      "c07": "NO",
+      "c08": "YES"
+    },
+    "notes": {
+      "c02": "Request clear (what to buy); nothing needed clarifying and nothing re-asked.",
+      "c04": "No substantive answer; T9 offers to take the money to a personal card.",
+      "c05": "Objection T10 ignored, operator doubles down T11, then closes chat.",
+      "c06": "T9 off-topic; client had to restate the question T10; alt 7.",
+      "c07": "Operator closed chat T13 without farewell.",
+      "c08": "(b) T9/T11 money to personal card for investing outside the company."
+    },
+    "uncertain": [
+      "c02",
+      "c06"
+    ]
+  },
+  "p1-ru-023": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "NO",
+      "c08": "YES"
+    },
+    "notes": {
+      "c05": "Tone stays polite; the improper offer T11 is scored under c08.",
+      "c07": "T13 'Хорошо. Всего доброго.' only.",
+      "c08": "(b) T11 private paid consultation, asks for personal number."
+    },
+    "uncertain": [
+      "c05"
+    ]
+  },
+  "p1-ru-024": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "NO",
+      "c08": "NO"
+    },
+    "notes": {
+      "c04": "'Not used directly' + use the trading account answers it; doesn't say how to move funds from the D-account; alt 15.",
+      "c07": "T13 'Хорошего дня!' only."
+    },
+    "uncertain": [
+      "c04"
+    ]
+  },
+  "p1-ru-025": {
+    "labels": {
+      "c01": "YES",
+      "c02": "YES",
+      "c03": "NA",
+      "c04": "NA",
+      "c05": "YES",
+      "c06": 10,
+      "c07": "NA",
+      "c08": "NO"
+    },
+    "notes": {
+      "c02": "No request stated before escalation; T9 'С чем помочь?' asks for genuinely missing info; alt NA.",
+      "c04": "Client left T10 before stating any request.",
+      "c07": "Client left chat T10."
+    },
+    "uncertain": [
+      "c02"
+    ]
+  },
+  "p1-ru-026": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NO",
+      "c03": "NA",
+      "c04": 0,
+      "c05": "NO",
+      "c06": 4,
+      "c07": "NO",
+      "c08": "NO"
+    },
+    "notes": {
+      "c02": "T9 'Чем могу помочь?' although request is in T0/T4.",
+      "c04": "T11 'Всё есть в приложении.' - no answer.",
+      "c05": "T11 dismissive (guidance example); operator closes chat T12.",
+      "c06": "Client had to restate T10, then got a non-answer.",
+      "c07": "Operator closed chat T12 without farewell."
+    },
+    "uncertain": []
+  },
+  "p1-ru-027": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "NO",
+      "c08": "NO"
+    },
+    "notes": {
+      "c07": "T23 'Пожалуйста. Хорошего вечера!' only."
+    },
+    "uncertain": []
+  },
+  "p1-ru-028": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "NO",
+      "c08": "NO"
+    },
+    "notes": {
+      "c07": "T15 'Пожалуйста. До свидания!' only."
+    },
+    "uncertain": []
+  },
+  "p1-ru-029": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "NO",
+      "c06": 4,
+      "c07": "NO",
+      "c08": "YES"
+    },
+    "notes": {
+      "c05": "T9 'Вы вообще читать умеете?'; T13 ignores the complaint in T12.",
+      "c06": "T9 gives no answer; client had to restate T10; alt 7.",
+      "c07": "T13 'До свидания.' only.",
+      "c08": "(a) T9 mocks the client's ability to read."
+    },
+    "uncertain": [
+      "c06"
+    ]
+  },
+  "p1-ru-030": {
+    "labels": {
+      "c01": "YES",
+      "c02": "YES",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "NO",
+      "c08": "NO"
+    },
+    "notes": {
+      "c02": "T9 asks the document name to confirm the right file (client's stated concern).",
+      "c07": "T13 thanks + farewell, no summary/offer."
+    },
+    "uncertain": []
+  },
+  "p1-kz-001": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "NO",
+      "c08": "NO"
+    },
+    "notes": {
+      "c07": "T11 'Оқасы жоқ. Сау болыңыз!' only."
+    },
+    "uncertain": []
+  },
+  "p1-kz-002": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "NO",
+      "c08": "NO"
+    },
+    "notes": {
+      "c07": "T13 'Жақсы. Күніңіз сәтті өтсін!' only."
+    },
+    "uncertain": []
+  },
+  "p1-kz-003": {
+    "labels": {
+      "c01": "YES",
+      "c02": "YES",
+      "c03": "YES",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "YES",
+      "c08": "NO"
+    },
+    "notes": {
+      "c02": "T13/T16 ask currency and transfer time - missing.",
+      "c03": "Identity confirmed T12 before the case T13.",
+      "c07": "T25 next step (answer here) + farewell."
+    },
+    "uncertain": []
+  },
+  "p1-kz-004": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "NO",
+      "c08": "NO"
+    },
+    "notes": {
+      "c07": "T13 'Сау болыңыз!' only."
+    },
+    "uncertain": []
+  },
+  "p1-kz-005": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NA",
+      "c04": 15,
+      "c05": "YES",
+      "c06": 4,
+      "c07": "NO",
+      "c08": "NO"
+    },
+    "notes": {
+      "c04": "T9 wrong/vague path ('Профильге кіріңіз'), corrected T11; alt 20.",
+      "c06": "Client had to re-ask T10 because of T9.",
+      "c07": "T13 'Жақсы.' - no farewell, no summary."
+    },
+    "uncertain": [
+      "c04"
+    ]
+  },
+  "p1-kz-006": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "NO",
+      "c08": "NO"
+    },
+    "notes": {
+      "c07": "T11 'glad I could help, goodbye' only."
+    },
+    "uncertain": []
+  },
+  "p1-kz-007": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "NO",
+      "c08": "NO"
+    },
+    "notes": {
+      "c07": "T11 'Сау болыңыз!' only."
+    },
+    "uncertain": []
+  },
+  "p1-kz-008": {
+    "labels": {
+      "c01": "NO",
+      "c02": "NO",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 4,
+      "c07": "NO",
+      "c08": "NO"
+    },
+    "notes": {
+      "c01": "T9 familiar 'Сәлем', no name.",
+      "c02": "T9 re-asks which site; already given to bot T4.",
+      "c05": "No rudeness beyond familiarity; client irritation T10 resolved by the answer T11.",
+      "c06": "Familiar greeting + redundant question made the client restate T10; alt 7.",
+      "c07": "No operator message after client's T12."
+    },
+    "uncertain": [
+      "c05",
+      "c06"
+    ]
+  },
+  "p1-kz-009": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "NO",
+      "c08": "NO"
+    },
+    "notes": {
+      "c07": "T19 'Оқасы жоқ. Сау болыңыз!' only."
+    },
+    "uncertain": []
+  },
+  "p1-kz-010": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "NO",
+      "c08": "NO"
+    },
+    "notes": {
+      "c07": "T11 'Сау болыңыз!' only."
+    },
+    "uncertain": []
+  },
+  "p1-kz-011": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "NA",
+      "c08": "NO"
+    },
+    "notes": {
+      "c07": "T13 connection lost 28 s after client's 'Жақсы', before operator could close."
+    },
+    "uncertain": []
+  },
+  "p1-kz-012": {
+    "labels": {
+      "c01": "YES",
+      "c02": "YES",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "YES",
+      "c08": "NO"
+    },
+    "notes": {
+      "c02": "T9 asks bond/ticker (missing); T11 also asks for the screen message although T4 already said it's just 'отклонён'.",
+      "c03": "An order-specific check would need ID, but nothing was disclosed or done; alt NO for offering to send it for checking with no ID (T11).",
+      "c07": "T13 next step + farewell."
+    },
+    "uncertain": [
+      "c02",
+      "c03"
+    ]
+  },
+  "p1-kz-013": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "NO",
+      "c08": "YES"
+    },
+    "notes": {
+      "c05": "Tone stays polite; the improper offer T11 is scored under c08.",
+      "c07": "Operator closed chat T13 without farewell.",
+      "c08": "(b) T11 paid private advice, asks for personal number."
+    },
+    "uncertain": [
+      "c05"
+    ]
+  },
+  "p1-kz-014": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "NO",
+      "c08": "NO"
+    },
+    "notes": {
+      "c07": "T11 'Сау болыңыз!' only."
+    },
+    "uncertain": []
+  },
+  "p1-kz-015": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NO",
+      "c04": 5,
+      "c05": "NO",
+      "c06": 10,
+      "c07": "YES",
+      "c08": "YES"
+    },
+    "notes": {
+      "c02": "Request (check restriction on my account) complete; operator asked nothing and re-asked nothing; alt NO (concluded without clarifying).",
+      "c03": "T9 discloses withdrawal restriction before ID; T11 says ID not needed.",
+      "c04": "Restriction stated without reason; T13 vague 'тексеруге жіберемін' with no when/where; alt 0 or 10.",
+      "c05": "Client's ID concern T10 dismissed T11; closes T13 while the reason is unanswered.",
+      "c06": "Each reply is clear in form though abrupt; alt 7.",
+      "c07": "T13 next step + farewell literally present, closing is formal.",
+      "c08": "(c) account restriction disclosed without identification, T9."
+    },
+    "uncertain": [
+      "c02",
+      "c04",
+      "c06",
+      "c07"
+    ]
+  },
+  "p1-en-001": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "NO",
+      "c08": "NO"
+    },
+    "notes": {
+      "c07": "T11 'You're welcome. Take care!' only."
+    },
+    "uncertain": []
+  },
+  "p1-en-002": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "NO",
+      "c08": "NO"
+    },
+    "notes": {
+      "c07": "T11 'Glad you got in. Have a good day!' - polite formula; could be read as a summary."
+    },
+    "uncertain": [
+      "c07"
+    ]
+  },
+  "p1-en-003": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "NO",
+      "c08": "NO"
+    },
+    "notes": {
+      "c07": "T11 thanks + goodbye, no summary/offer."
+    },
+    "uncertain": []
+  },
+  "p1-en-004": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "NO",
+      "c08": "NO"
+    },
+    "notes": {
+      "c07": "T13 'You're welcome. Have a good day!' only."
+    },
+    "uncertain": []
+  },
+  "p1-en-005": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "NO",
+      "c08": "NO"
+    },
+    "notes": {
+      "c07": "T13 'You're welcome. Goodbye!' only."
+    },
+    "uncertain": []
+  },
+  "p1-en-006": {
+    "labels": {
+      "c01": "YES",
+      "c02": "YES",
+      "c03": "YES",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "YES",
+      "c08": "NO"
+    },
+    "notes": {
+      "c02": "T13/T18 ask currency and transfer time - missing.",
+      "c03": "Identity verified T12 before the case T15.",
+      "c07": "T29 'We'll follow up here about the transfer' + goodbye."
+    },
+    "uncertain": []
+  },
+  "p1-en-007": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NA",
+      "c04": 10,
+      "c05": "NO",
+      "c06": 7,
+      "c07": "NO",
+      "c08": "NO"
+    },
+    "notes": {
+      "c04": "Path given T9; 'when can I retry' (T4, re-asked T10) ignored at T11.",
+      "c05": "T11 brushes off the open question and closes.",
+      "c06": "T11 does not answer the question asked at T10.",
+      "c07": "T11 restates the path + 'Bye', not a summary of the resolution; a literal reading could count it."
+    },
+    "uncertain": [
+      "c07"
+    ]
+  },
+  "p1-en-008": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "NO",
+      "c08": "NO"
+    },
+    "notes": {
+      "c06": "T17 'It doesn't answer what's happening with an existing position' is awkward but the client continued; alt 7.",
+      "c07": "T19 'Of course. Have a good day!' only."
+    },
+    "uncertain": [
+      "c06"
+    ]
+  },
+  "p1-en-009": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "NA",
+      "c08": "NO"
+    },
+    "notes": {
+      "c07": "T11 connection lost 18 s after client's last message."
+    },
+    "uncertain": []
+  },
+  "p1-en-010": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "NO",
+      "c08": "NO"
+    },
+    "notes": {
+      "c07": "T11 'You're welcome. Bye!' only."
+    },
+    "uncertain": []
+  },
+  "p1-en-011": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "NO",
+      "c08": "NO"
+    },
+    "notes": {
+      "c07": "T11 'Happy to help. Goodbye!' only."
+    },
+    "uncertain": []
+  },
+  "p1-en-012": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "NO",
+      "c08": "NO"
+    },
+    "notes": {
+      "c07": "T11 'You're welcome. Have a good day!' only."
+    },
+    "uncertain": []
+  },
+  "p1-en-013": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NA",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "NO",
+      "c08": "YES"
+    },
+    "notes": {
+      "c05": "Tone stays polite; the improper offer T11 is scored under c08.",
+      "c07": "Agent closed chat T13 without farewell.",
+      "c08": "(b) T11 paid private advice, asks for personal number."
+    },
+    "uncertain": [
+      "c05"
+    ]
+  },
+  "p1-en-014": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NO",
+      "c04": 5,
+      "c05": "NO",
+      "c06": 7,
+      "c07": "NO",
+      "c08": "YES"
+    },
+    "notes": {
+      "c02": "Request complete; nothing asked or re-asked; alt NO (concluded without clarifying).",
+      "c03": "T10 discloses withdrawal restriction before ID; T12 'We can skip that'.",
+      "c04": "Restriction stated, reason not given, 'send to the team' with no follow-up channel (T13 unanswered); alt 0 or 10.",
+      "c05": "ID concern T11 brushed off; T14 'Goodbye.' while client waits for an answer.",
+      "c06": "T14 ignores the question 'Will I hear back here?'.",
+      "c07": "Final T14 is a bare 'Goodbye.' to an open question; T12 next step could count literally.",
+      "c08": "(c) account restriction disclosed without identification, T10."
+    },
+    "uncertain": [
+      "c02",
+      "c04",
+      "c07"
+    ]
+  },
+  "p1-en-015": {
+    "labels": {
+      "c01": "NO",
+      "c02": "NO",
+      "c03": "NA",
+      "c04": 15,
+      "c05": "YES",
+      "c06": 4,
+      "c07": "NO",
+      "c08": "NO"
+    },
+    "notes": {
+      "c01": "T9 has no greeting and no name.",
+      "c02": "T9 gives advice without knowing app/site (bot's T3 question unanswered).",
+      "c04": "Correct answer only at T11 after wrong advice T9; alt 20 (final answer correct).",
+      "c06": "Client had to re-ask T10 'Settings where?'.",
+      "c07": "T13 'Bye.' only."
+    },
+    "uncertain": [
+      "c04"
+    ]
+  },
+  "p4-ru-003": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NO",
+      "c03": "YES",
+      "c04": 15,
+      "c05": "YES",
+      "c06": 4,
+      "c07": "NA",
+      "c08": "NO"
+    },
+    "notes": {
+      "c02": "T26 answers about 'изменение сведений', ignoring the client's explicit trade-order details (T14-T16, T22); client corrects T27.",
+      "c03": "ID by full name/IIN/SMS confirmed T64 before order status T65-T67; T26 remark on the earlier change-of-details order came before ID (known from prior call).",
+      "c04": "Final next step correct (escalate to tech dept + callback T70-T75) after misdirected T26; alt 20.",
+      "c06": "Client had to correct the operator T27; callback time muddled T72-T75; alt 7.",
+      "c07": "Next step given T75; client thanked and hung up T77 before any farewell; alt NO."
+    },
+    "uncertain": [
+      "c02",
+      "c03",
+      "c04",
+      "c06",
+      "c07"
+    ]
+  },
+  "p4-ru-002": {
+    "labels": {
+      "c01": "NO",
+      "c02": "NA",
+      "c03": "YES",
+      "c04": 15,
+      "c05": "YES",
+      "c06": 10,
+      "c07": "NO",
+      "c08": "NO"
+    },
+    "notes": {
+      "c01": "T2 gives company + name but no greeting (repeat call; recording started T4).",
+      "c03": "IIN/name/address confirmed T14 before trader check and answer T63; T11 'проверили тоже отказ' came just before.",
+      "c04": "Why it fails answered (OTC only, T63-T68); limit-order advice T5 failed; how to buy via OTC and its fee (trader asked to tell the client, T41-T43) omitted.",
+      "c06": "Hold announced T14, thanked T59; hold-time lines T19-T57 not scored.",
+      "c07": "T70 thanks + farewell only, no summary/offer of help."
+    },
+    "uncertain": [
+      "c01",
+      "c03",
+      "c04",
+      "c07"
+    ]
+  },
+  "p4-ru-001": {
+    "labels": {
+      "c01": "YES",
+      "c02": "NA",
+      "c03": "NA",
+      "c04": 15,
+      "c05": "NO",
+      "c06": 4,
+      "c07": "NA",
+      "c08": "NO"
+    },
+    "notes": {
+      "c02": "Request clear (wants investment advice); operator never asked what help with buying is needed (T36).",
+      "c04": "Scope answer correct (no advice, only personal manager); nothing on how to get a manager or what help support gives with buying.",
+      "c05": "'отфутболили' complaint T33 ignored; T42 'понимаю, но вас неправильно проинформировали' deflects, no help offered.",
+      "c06": "Client had to ask what 'техническая часть' means T34; repetitive T25-T30; alt 7.",
+      "c07": "Client ended call T43 right after the operator's question."
+    },
+    "uncertain": [
+      "c02",
+      "c04",
+      "c05",
+      "c06"
+    ]
+  },
+  "p4-ru-005": {
+    "labels": {
+      "c01": "NO",
+      "c02": "YES",
+      "c03": "NO",
+      "c04": 20,
+      "c05": "YES",
+      "c06": 4,
+      "c07": "YES",
+      "c08": "NO"
+    },
+    "notes": {
+      "c01": "T16 has a greeting but no recognisable name (ASR 'fernetbark и операции', no [Имя скрыто]); may be ASR loss.",
+      "c02": "T19 asks registration phone, T61 clarifies document choice.",
+      "c03": "Looked up the wife's registration by phone only (T19-T21) and discussed/planned deleting it (T28, T48) with no ID; alt NA (demo account, nothing disclosed).",
+      "c06": "Contradictory timing (not today T28 / if we manage today T34 / ~2h T39 / call tomorrow T48) - client re-asked T35-T36, T41, T46.",
+      "c07": "Offer of more help T52 + closing 'благодарю вас за обращение' T71, no explicit goodbye; alt NO.",
+      "c08": "No account details actually disclosed; YES only if the c03 handling is treated as disclosure."
+    },
+    "uncertain": [
+      "c01",
+      "c03",
+      "c06",
+      "c07",
+      "c08"
+    ]
+  },
+  "p4-ru-004": {
+    "labels": {
+      "c01": "YES",
+      "c02": "YES",
+      "c03": "YES",
+      "c04": 15,
+      "c05": "YES",
+      "c06": 4,
+      "c07": "NA",
+      "c08": "NO"
+    },
+    "notes": {
+      "c02": "T29-T35 ask which bond/ticker.",
+      "c03": "SMS code confirmed T78 (address had not matched) before the order is disclosed T78/T89.",
+      "c04": "Explained the bonds go only via traders (phone/email) and the market is closed; never clearly answered 'every purchase?' (T96-T110).",
+      "c05": "Polite overall; slightly defensive T83/T86 and never acknowledged the 'can't talk at work' concern, but offered email.",
+      "c06": "Client asked 'постоянно писать?' 4+ times (T96-T110) because the replies didn't answer it.",
+      "c07": "Client ended call T113; T114 after the end not counted."
+    },
+    "uncertain": [
+      "c04",
+      "c05"
+    ]
+  }
+}
