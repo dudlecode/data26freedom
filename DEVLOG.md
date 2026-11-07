@@ -16,7 +16,8 @@
 - [x] `TASK-001` Запуск проекта на Windows - Magurin / Claude Code - `main` - 07.11 16:25
 - [>] `TASK-002` Интеграции и выгрузка results.json - Magurin / Claude Code - `feat/integrations` - 07.11 17:20
 - [>] `TASK-003` Замер локальной модели qwen3:30b - Magurin / Claude Code - `feat/integrations` - 07.11 17:55
-- [!] `TASK-004` Собрать results/dev/results.json - не взята - заблокирована: нужен ключ Claude API или быстрая локальная модель
+- [!] `TASK-004` Собрать results/dev/results.json - не взята - заблокирована: нужен быстрый доступ к qwen3:30b (внешний хостинг)
+- [>] `TASK-005` Убрать Claude API, оставить один OpenAI-совместимый провайдер под Qwen - Magurin / Claude Code - `feat/integrations` - 07.11 18:26
 
 ## `TASK-001`
 
@@ -49,6 +50,14 @@ venv, зависимости, сервер на http://127.0.0.1:8000. 28 из 2
 
 DEV не оценён: без модели все 65 записей уйдут как `status: "error"`. Команда, когда модель будет:
 `cd backend && ../.venv/Scripts/python.exe -m cqa.results --group DEV --evaluate --out ../results/dev/results.json`.
+
+## `TASK-005`
+
+Решение команды: модель - qwen3:30b (скорее всего на внешнем хостинге), Claude API не используем.
+Область: `backend/cqa/{providers,config,keys,app,results,postman}.py`, `frontend/js/views/settings.js`, `frontend/js/{ui,api,app}.js`,
+`frontend/index.html`, тесты, `requirements.txt`, `README.md`, `docs/API.md`, `.env.example`.
+Готово, когда: в коде и доках нет Claude API, оценка идёт через один провайдер (base_url + модель + ключ), стоимость
+считается по цене за токен из `.env`, тесты зелёные. Таблица «Точность на DEV» в README остаётся как ориентир (Claude Opus).
 
 ## Решения и грабли
 
