@@ -50,7 +50,7 @@ DEMO_USERS = [
 ]
 
 # Paths reachable without a session.
-PUBLIC_API = {("POST", "/api/auth/login"), ("GET", "/api/health"), ("POST", "/api/auth/logout")}
+PUBLIC_API = {("POST", "/api/auth/login"), ("POST", "/api/auth/quick"), ("GET", "/api/auth/quick"), ("GET", "/api/health"), ("POST", "/api/auth/logout")}
 
 # (method, path regex) -> roles allowed. Anything else under /api needs any logged-in role.
 RULES: list[tuple[str, re.Pattern[str], tuple[str, ...]]] = [
@@ -121,6 +121,22 @@ def public_user(u: dict[str, Any]) -> dict[str, Any]:
 def login(username: str, password: str) -> tuple[dict[str, Any], str] | None:
     u = db.one("SELECT * FROM users WHERE username = ?", [username.strip().lower()])
     if not u or not verify_password(password, u["password_hash"]):
+        return None
+    return public_user(u), make_token(u["id"])
+
+
+def quick_roles() -> set[str]:
+    """Roles allowed to sign in with one click on the demo login screen (CQA_QUICK_LOGIN_ROLES).
+    Empty by default: the password never leaves the server either way."""
+    raw = os.getenv("CQA_QUICK_LOGIN_ROLES", "")
+    return {r.strip() for r in raw.split(",") if r.strip() in ROLES}
+
+
+def quick_login(username: str) -> tuple[dict[str, Any], str] | None:
+    if username.strip().lower() not in {u for u, _, _ in DEMO_USERS}:
+        return None
+    u = db.one("SELECT * FROM users WHERE username = ?", [username.strip().lower()])
+    if not u or u["role"] not in quick_roles():
         return None
     return public_user(u), make_token(u["id"])
 

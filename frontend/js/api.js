@@ -87,7 +87,7 @@ export async function request(method, path, { body, params, signal } = {}) {
     try { data = JSON.parse(text); } catch { data = text; }
   }
   if (!res.ok) {
-    if (res.status === 401 && path !== '/api/auth/login') {
+    if (res.status === 401 && path !== '/api/auth/login' && path !== '/api/auth/quick') {
       setToken(null);
       window.dispatchEvent(new CustomEvent('cqa:unauthorized'));
     }
@@ -116,6 +116,12 @@ export const api = {
     setToken(r && r.token);
     return r;
   },
+  async quickLogin(username) {
+    const r = await post('/api/auth/quick', { username });
+    setToken(r && r.token);
+    return r;
+  },
+  quickRoles: () => get('/api/auth/quick'),
   me: () => get('/api/auth/me'),
   async logout() {
     try { await post('/api/auth/logout'); } finally { setToken(null); }

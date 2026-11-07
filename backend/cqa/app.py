@@ -475,6 +475,24 @@ def auth_login(body: Any = Body(default=None)):
     return resp
 
 
+@app.post("/api/auth/quick")
+def auth_quick(body: Any = Body(default=None)):
+    """One-click demo sign-in for the roles listed in CQA_QUICK_LOGIN_ROLES."""
+    b = body_dict(body)
+    res = auth.quick_login(str(b.get("username") or ""))
+    if not res:
+        raise err(403, "Быстрый вход для этой роли выключен. Введите пароль.")
+    user, token = res
+    resp = JSONResponse({"user": user, "token": token})
+    resp.set_cookie(auth.COOKIE, token, max_age=auth.SESSION_TTL_S, httponly=True, samesite="lax")
+    return resp
+
+
+@app.get("/api/auth/quick")
+def auth_quick_roles():
+    return {"roles": sorted(auth.quick_roles())}
+
+
 @app.post("/api/auth/logout")
 def auth_logout():
     resp = JSONResponse({"ok": True})
@@ -1002,6 +1020,24 @@ def create_evaluation(dialog_id: str, checklist_id: int, settings: dict[str, Any
     )
 
 
+def budget_guard(n_runs: int, settings: dict[str, Any]) -> None:
+    """Optional daily spend cap for the public demo server (CQA_DAILY_BUDGET_USD, 0 = off)."""
+    try:
+        cap = float(os.getenv("CQA_DAILY_BUDGET_USD", "0") or 0)
+    except ValueError:
+        cap = 0.0
+    if cap <= 0 or settings.get("provider") == "openai_compat":
+        return
+    from datetime import datetime, timedelta, timezone
+    since = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat(timespec="seconds")
+    row = db.one("SELECT COALESCE(SUM(cost_usd), 0) AS s FROM evaluations WHERE created_at >= ?", [since])
+    spent = float((row or {}).get("s") or 0)
+    estimate = n_runs * 0.08
+    if spent + estimate > cap:
+        raise err(429, f"Дневной лимит расходов на оценку исчерпан: потрачено ${spent:.2f} из ${cap:.2f}. "
+                       "Обратитесь к администратору.")
+
+
 @app.post("/api/evaluations")
 async def evaluations_create(body: Any = Body(default=None)):
     b = body_dict(body)
@@ -1025,6 +1061,7 @@ async def evaluations_create(body: Any = Body(default=None)):
     else:
         cl = active_checklist()
     settings = {**get_settings(), **sanitize_settings(b.get("settings"))}
+    budget_guard(len(ids) * int(settings.get("votes", 1) or 1), settings)
     eval_ids = [create_evaluation(d, cl["id"], settings) for d in ids]
     for eid in eval_ids:
         runner.submit(eid)

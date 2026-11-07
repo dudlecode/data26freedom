@@ -64,18 +64,37 @@ export function mount(root, { ctx, onLogin }) {
     });
   });
 
-  const fill = (u) => {
-    userIn.value = u.username;
+  // Быстрый вход: клик по роли сразу входит. Локально по демо-паролю, на сервере через
+  // /api/auth/quick (пароль не покидает сервер; роли задаёт CQA_QUICK_LOGIN_ROLES).
+  let quickRoles = null;
+  api.quickRoles().then((r) => { quickRoles = new Set(r.roles || []); }).catch(() => { quickRoles = new Set(); });
+  const quickLogin = (u, row) => {
     error.textContent = '';
-    if (DEMO_PASSWORD) { passIn.value = DEMO_PASSWORD; submit.focus(); } else { passIn.value = ''; passIn.focus(); }
+    userIn.value = u.username;
+    // у демо-пользователей логин совпадает с ролью
+    const viaServer = !DEMO_PASSWORD && quickRoles && quickRoles.has(u.username);
+    if (!DEMO_PASSWORD && !viaServer) { passIn.value = ''; passIn.focus(); return; }
+    passIn.value = DEMO_PASSWORD || '';
+    withBusy(row, async () => {
+      try {
+        const r = viaServer ? await api.quickLogin(u.username) : await api.login(u.username, DEMO_PASSWORD);
+        onLogin(r.user);
+      } catch (err) {
+        fail(err.status === 401 || err.status === 403 ? 'Быстрый вход недоступен, введите пароль.' : (err.message || 'Вход не выполнен.'), passIn);
+      }
+    });
   };
 
-  const demoRows = DEMO.map((u) => h('tr', {
-    tabindex: 0,
-    'aria-label': `Заполнить форму: ${u.username}, ${u.role}`,
-    onclick: () => fill(u),
-    onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fill(u); } },
-  }, h('td', { class: 'id' }, u.username), h('td', null, u.role)));
+  const quick = DEMO.map((u) => {
+    const row = h('button', { type: 'button', class: 'acct', 'aria-label': `Войти как ${u.role}` },
+      h('span', { class: `acct__avatar acct__avatar--${u.username}`, 'aria-hidden': 'true' }, u.role.slice(0, 1)),
+      h('span', { class: 'acct__text' },
+        h('span', { class: 'acct__role' }, u.role),
+        h('span', { class: 'acct__login' }, u.username)),
+      h('span', { class: 'acct__go', 'aria-hidden': 'true' }, icon('chevronRight', 16)));
+    row.addEventListener('click', () => quickLogin(u, row));
+    return row;
+  });
 
   root.append(h('div', { class: 'login' },
     h('img', { class: 'login__mark', src: 'assets/freedom-mark.svg', alt: '', 'aria-hidden': 'true', width: 97, height: 112 }),
@@ -87,12 +106,8 @@ export function mount(root, { ctx, onLogin }) {
         h('h1', { class: 'login__title' }, 'Вход'),
         form,
         h('div', { class: 'demo' },
-          h('h2', { class: 'demo__title' }, 'Демо-доступ'),
-          h('div', { class: 'tbl-wrap' },
-            h('table', { class: 'tbl' },
-              h('thead', null, h('tr', null, h('th', null, 'Логин'), h('th', null, 'Роль'))),
-              h('tbody', null, demoRows))),
-          DEMO_PASSWORD ? h('p', { class: 'demo__note' }, `Пароль: ${DEMO_PASSWORD}`) : null))),
+          h('div', { class: 'demo__title' }, 'Быстрый вход'),
+          h('div', { class: 'acct-list' }, quick)))),
     h('footer', { class: 'login__bottom' }, h('span', null, '© 2026 Freedom Broker'))));
 
   setTimeout(() => userIn.focus(), 0);

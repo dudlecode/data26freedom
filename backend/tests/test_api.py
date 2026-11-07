@@ -314,3 +314,14 @@ def test_results_export_format(client):
     # validator catches broken files
     bad = json.loads(json.dumps(doc)); bad["results"][0]["criteria"] = bad["results"][0]["criteria"][:7]
     assert results_export.validate(bad)
+
+
+def test_quick_login(temp_db, monkeypatch):
+    with TestClient(app_module.app) as c:
+        assert c.post("/api/auth/quick", json={"username": "operator"}).status_code == 403
+        monkeypatch.setenv("CQA_QUICK_LOGIN_ROLES", "operator,reviewer")
+        r = c.post("/api/auth/quick", json={"username": "operator"})
+        assert r.status_code == 200 and r.json()["user"]["role"] == "operator"
+        assert c.get("/api/dialogs").status_code == 200
+        assert c.post("/api/auth/quick", json={"username": "admin"}).status_code == 403
+        assert c.post("/api/auth/quick", json={"username": "nobody"}).status_code == 403

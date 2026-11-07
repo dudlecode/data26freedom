@@ -579,15 +579,15 @@ dialog.dlg[open] { animation: dlg-in var(--d-reveal) var(--ease-out); }
 .login__tag { padding-left: 16px; border-left: 1px solid rgba(255, 255, 255, 0.16); font-size: var(--fs-13); color: var(--sb-text); }
 .login__center { display: flex; align-items: center; justify-content: center; padding: 16px 24px 32px; }
 .login__card {
-  width: 440px; max-width: 100%; padding: 32px 32px 24px; border-radius: 12px;
+  width: 420px; max-width: 100%; padding: 32px 32px 24px; border-radius: 12px;
   background: var(--surface); color: var(--text);
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.30), 0 2px 8px rgba(0, 0, 0, 0.14);
   animation: view-in var(--d-layout) var(--ease-out) both;
 }
-.login__title { font-size: var(--fs-24); line-height: 32px; font-weight: 600; margin-bottom: 20px; }
+.login__title { font-size: 22px; line-height: 30px; font-weight: 600; margin-bottom: 20px; letter-spacing: -0.01em; }
 .login__sub { margin: 4px 0 20px; font-size: var(--fs-13); color: var(--text-2); }
-.login__card .input { height: 38px; }
-.login__card .btn--primary { height: 38px; }
+.login__card .input { height: 40px; }
+.login__card .btn--primary { height: 40px; font-size: var(--fs-14); }
 .login__bottom { display: flex; justify-content: space-between; gap: 16px; padding: 20px 40px; font-size: var(--fs-12); color: var(--sb-text-2); }
 .login__error { min-height: 20px; font-size: var(--fs-13); color: var(--danger); }
 .login__fields.is-shake { animation: shake 320ms var(--ease-out); }
@@ -607,13 +607,36 @@ dialog.dlg[open] { animation: dlg-in var(--d-reveal) var(--ease-out); }
 .pw__toggle:hover { background: var(--neutral-bg); color: var(--text); }
 .pw__toggle[aria-pressed="true"] { color: var(--primary); }
 .demo { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border); }
-.demo__title { font-size: var(--fs-13); font-weight: 600; margin-bottom: 6px; }
-.demo .tbl-wrap { border-radius: var(--r-ctl); }
-.demo .tbl td { height: 34px; }
-.demo .tbl tr { cursor: pointer; }
-.demo .tbl td.t-2 { font-size: var(--fs-12); }
-.demo .tbl tr:focus-visible td { background: var(--hover); }
-.demo .tbl tr:focus-visible { outline-offset: -2px; }
+.demo__title { font-size: var(--fs-12); font-weight: 600; color: var(--text-2); margin-bottom: 8px; }
+.acct-list { display: grid; gap: 6px; }
+.acct {
+  position: relative; display: grid; grid-template-columns: 32px minmax(0, 1fr) 16px; align-items: center; gap: 12px;
+  width: 100%; padding: 8px 12px 8px 8px; border: 1px solid var(--border); border-radius: var(--r-ctl);
+  background: var(--surface); color: var(--text); text-align: left; cursor: pointer;
+  transition: background var(--d-press) var(--ease-out), border-color var(--d-press) var(--ease-out), transform var(--d-press) var(--ease-out);
+}
+.acct:hover { background: var(--hover); border-color: var(--border-strong); }
+.acct:active { transform: scale(var(--m-press)); }
+.acct:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.acct__avatar {
+  display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%;
+  font-size: var(--fs-13); font-weight: 600; color: #fff; background: var(--sb-active);
+}
+.acct__avatar--operator { background: #1C4030; }
+.acct__avatar--supervisor { background: #0B7A3B; }
+.acct__avatar--reviewer { background: #2F5D50; }
+.acct__avatar--admin { background: #14231C; }
+.acct__text { display: grid; min-width: 0; line-height: 18px; }
+.acct__role { font-size: var(--fs-14); font-weight: 600; }
+.acct__login { font-size: var(--fs-12); color: var(--text-2); }
+.acct__go { color: var(--text-2); transition: transform var(--d-press) var(--ease-out), color var(--d-press) var(--ease-out); }
+.acct:hover .acct__go { color: var(--primary); transform: translateX(2px); }
+.acct.is-busy { cursor: progress; }
+.acct.is-busy .acct__go { opacity: 0; }
+.acct.is-busy::after {
+  content: ""; position: absolute; right: 12px; top: 50%; width: 14px; height: 14px; margin-top: -7px;
+  border: 2px solid var(--border-strong); border-top-color: var(--primary); border-radius: 50%; animation: spin 700ms linear infinite;
+}
 .demo__note { margin-top: 6px; font-size: var(--fs-12); color: var(--text-2); }
 
 /* ---------- карточка диалога ---------- */

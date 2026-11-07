@@ -330,7 +330,7 @@ def render_facts(p: Prepared) -> str:
     if f["first_operator_turn"] is not None:
         frt = f["first_response_s"]
         if frt is not None:
-            ok = "в пределах порога 3 мин" if f["first_response_ok"] else "ПРЕВЫШЕН порог 3 мин"
+            ok = "SLA 3 мин соблюдён" if f["first_response_ok"] else "SLA 3 мин ПРЕВЫШЕН"
             lines.append(
                 f"Первое сообщение оператора: T{f['first_operator_turn'] + 1}, первая реакция через {frt} с ({ok})."
             )
