@@ -5,7 +5,7 @@ import { api, audioUrl } from '../api.js';
 import {
   h, clear, icon, button, fmt, isNum, prefs, toast, toastError, openModal, plural, roleAction,
   valueBadge, valueTone, normValue, scoreTone, linkifyTurns, emptyState, errorState, skeleton,
-  select, field, isCall, LANG_LABELS, TYPE_LABELS, estimateCost,
+  select, field, isCall, LANG_LABELS, TYPE_LABELS, estimateCost, costHint,
 } from '../ui.js';
 import { renderTranscript } from '../transcript.js';
 
@@ -421,9 +421,7 @@ export async function mount(root, { params, query, ctx }) {
     let settings = null;
     try { settings = (await api.settings()).settings; } catch { /* по умолчанию */ }
     const est = estimateCost(settings, 1);
-    const costHint = est.local
-      ? `Прогонов модели: ${est.votes}. Локальная модель — без затрат на API.`
-      : `Прогонов модели: ${est.votes}. Ориентировочно ${fmt.money(est.cost)}${est.model ? ` (${est.model})` : ''}.`;
+    const costText = `Прогонов модели: ${est.votes}. ${costHint(est)}`;
     const evCl = ev ? list.find((c) => c.id === ev.checklist_id) : null;
     const versionNote = ev && active && evCl && evCl.id !== active.id
       ? h('p', { class: 'muted small' }, `Текущая оценка сделана по версии ${evCl.version}, активная — версия ${active.version}. По умолчанию выбрана активная.`)
@@ -433,7 +431,7 @@ export async function mount(root, { params, query, ctx }) {
       subtitle: 'Новая оценка сохранится в истории, предыдущие останутся доступны для сравнения.',
       body: h('div', { class: 'form-stack' },
         versionNote,
-        field('Версия чек-листа', sel, { hint: costHint })),
+        field('Версия чек-листа', sel, { hint: costText })),
       actions: [
         { label: 'Отмена', kind: 'ghost' },
         {
@@ -584,11 +582,9 @@ export async function mount(root, { params, query, ctx }) {
           kv('Модель', ev.model || st.model || '—'),
           kv('Провайдер', providers),
           kv('Прогонов (голосов)', String(st.votes ?? runs.length)),
-          kv('Уровень рассуждений', st.effort || '—'),
+          kv('Сервер модели', st.base_url || st.local_base_url || '—'),
           kv('Токены на входе', fmt.tokens(u.input_tokens)),
           kv('Токены на выходе', fmt.tokens(u.output_tokens)),
-          kv('Чтение из кэша', fmt.tokens(u.cache_read_input_tokens)),
-          kv('Запись в кэш', fmt.tokens(u.cache_creation_input_tokens)),
           kv('Стоимость', fmt.money(ev.cost_usd)),
           kv('Длительность', fmt.duration(ev.duration_ms)),
           kv('Создана', fmt.date(ev.created_at)),

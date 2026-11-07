@@ -25,6 +25,7 @@
   "criteria": [
     {
       "id": "c01",
+      "export_id": "contact",
       "code": "01",
       "name": "Установление контакта",
       "section": "start",
@@ -38,6 +39,7 @@
     },
     {
       "id": "c02",
+      "export_id": "discovery",
       "code": "02",
       "name": "Выявление потребности",
       "section": "start",
@@ -51,6 +53,7 @@
     },
     {
       "id": "c03",
+      "export_id": "identification",
       "code": "03",
       "name": "Идентификация",
       "section": "solution",
@@ -64,6 +67,7 @@
     },
     {
       "id": "c04",
+      "export_id": "consultation",
       "code": "04",
       "name": "Корректная и полная консультация",
       "section": "solution",
@@ -98,6 +102,7 @@
     },
     {
       "id": "c05",
+      "export_id": "empathy",
       "code": "05",
       "name": "Эмпатия и клиентоориентированность",
       "section": "conduct",
@@ -111,6 +116,7 @@
     },
     {
       "id": "c06",
+      "export_id": "dialogue",
       "code": "06",
       "name": "Управление диалогом, скорость и грамотность",
       "section": "conduct",
@@ -141,6 +147,7 @@
     },
     {
       "id": "c07",
+      "export_id": "closure",
       "code": "07",
       "name": "Завершение",
       "section": "conduct",
@@ -154,6 +161,7 @@
     },
     {
       "id": "c08",
+      "export_id": "critical",
       "code": "08",
       "name": "Грубые ошибки",
       "section": "critical",

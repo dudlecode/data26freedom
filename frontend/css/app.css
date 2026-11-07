@@ -801,12 +801,34 @@ section.card + section.card, .kpi-strip + section.card { margin-top: 14px; }
 /* ---------- настройки ---------- */
 .settings-grid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 20px; align-items: start; }
 .settings-card { display: flex; flex-direction: column; gap: 16px; }
+.settings-wide { grid-column: 1 / -1; }
+/* встраивание в Dynamics 365 / iframe: без шапки, плотнее */
+body.is-embed .app-header, body.is-embed .skip-link { display: none; }
+body.is-embed .app-main { padding-top: 12px; }
+.integ-list { display: flex; flex-direction: column; gap: 6px; }
+.integ-row { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 10px; align-items: baseline; font-size: 13.5px; }
+.integ-url { font-size: 12px; word-break: break-all; }
+.integ-sub { margin-bottom: 6px; }
+.table--compact td { padding: 6px 10px; }
+.audit-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.audit-head .card__title { margin: 0; }
+.audit-head select { max-width: 260px; }
+.audit-list { display: flex; flex-direction: column; max-height: 420px; overflow-y: auto; }
+.audit-item { display: flex; gap: 10px; padding: 9px 2px; border-bottom: 1px solid var(--line-2); }
+.audit-item:last-child { border-bottom: 0; }
+.audit-item__icon { color: var(--ink-3); padding-top: 2px; }
+.audit-item__body { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.audit-item__text { font-size: 13.5px; color: var(--ink); }
+a.audit-item__text { text-decoration: none; }
+a.audit-item__text:hover { text-decoration: underline; }
+@media (max-width: 640px) { .integ-row { grid-template-columns: minmax(0, 1fr); gap: 2px; } }
 .cost-note { display: flex; gap: 8px; align-items: flex-start; background: var(--accent-soft); color: var(--ink); padding: 10px 12px; border-radius: 8px; font-size: 13px; }
 .cost-note .icon { color: var(--accent); margin-top: 2px; }
 .key-status { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-2); }
 .key-status__dot { width: 12px; height: 12px; border-radius: 50%; flex: none; }
 .key-status__dot.is-ok { background: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
 .key-status__dot.is-missing { background: var(--no); box-shadow: 0 0 0 4px var(--no-bg); }
+.key-status__dot.is-na { background: var(--na); box-shadow: 0 0 0 4px var(--na-bg); }
 .key-status__title { font-weight: 700; }
 .key-msg { font-size: 13.5px; min-height: 1.5em; }
 .key-msg.is-ok { color: var(--accent); }

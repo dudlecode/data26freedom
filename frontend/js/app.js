@@ -156,7 +156,12 @@ function initRoleSwitch() {
 async function refreshHealth() {
   try {
     const hlt = await api.health();
-    document.getElementById('key-banner').hidden = !!(hlt && hlt.has_anthropic_key);
+    // баннер - только если сервер модели недоступен или модели на нём нет
+    const m = (hlt && hlt.model) || {};
+    const problem = m.error || (m.reachable === false ? 'сервер модели недоступен' : '');
+    const banner = document.getElementById('key-banner');
+    banner.hidden = !problem;
+    if (problem) document.getElementById('key-banner-text').textContent = `Модель ${m.model || ''} (${m.base_url || ''}): ${problem} - оценка диалогов недоступна.`;
   } catch {
     // офлайн-баннер показывает обработчик cqa:offline
   }
@@ -178,6 +183,33 @@ async function refreshBadges() {
 window.addEventListener('cqa:offline', () => { document.getElementById('offline-banner').hidden = false; });
 window.addEventListener('cqa:online', () => { document.getElementById('offline-banner').hidden = true; });
 
+/* ---------- встраивание (Dynamics 365 web resource, iframe) ----------
+ * Query-параметры страницы (не hash):
+ *   ?dialog=<conversation_id> | ?appeal=<id> | ?view=appeals|checklists|...  - открыть нужный экран
+ *   ?data=<...>   - так Dynamics 365 передаёт параметр в веб-ресурс: «p1-ru-001», «dialog=p1-ru-001»
+ *                   или «appeal=12» (можно несколько через &, значение URL-кодируется)
+ *   ?embed=1      - без шапки и навигации, для карточки на форме CRM
+ *   ?role=reviewer|supervisor, ?user=<имя> - роль и имя для журнала действий
+ */
+function applyEmbedParams() {
+  const qs = new URLSearchParams(location.search);
+  const data = qs.get('data');
+  if (data) {
+    const inner = data.includes('=') ? new URLSearchParams(data) : new URLSearchParams({ dialog: data });
+    for (const [k, v] of inner) if (!qs.has(k)) qs.set(k, v);
+  }
+  if (qs.get('embed') === '1' || qs.get('embed') === 'true') document.body.classList.add('is-embed');
+  const role = qs.get('role');
+  if (role === 'reviewer' || role === 'supervisor') prefs.set('role', role);
+  const user = qs.get('user');
+  if (user) window.CQA_CONFIG = { ...(window.CQA_CONFIG || {}), user };
+  if (location.hash && location.hash !== '#' && location.hash !== '#/') return; // явный маршрут важнее
+  if (qs.get('dialog')) history.replaceState(null, '', `${location.pathname}${location.search}#/dialog/${encodeURIComponent(qs.get('dialog'))}`);
+  else if (qs.get('appeal')) history.replaceState(null, '', `${location.pathname}${location.search}#/appeal/${encodeURIComponent(qs.get('appeal'))}`);
+  else if (qs.get('view') && /^[a-z]+$/.test(qs.get('view'))) history.replaceState(null, '', `${location.pathname}${location.search}#/${qs.get('view')}`);
+}
+
+applyEmbedParams();
 installTooltips();
 initRoleSwitch();
 window.addEventListener('hashchange', onHashChange);

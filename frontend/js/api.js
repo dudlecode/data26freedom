@@ -41,6 +41,11 @@ function qs(params) {
 export async function request(method, path, { body, params, signal } = {}) {
   const url = apiBase() + path + qs(params);
   const init = { method, headers: { Accept: 'application/json' }, signal };
+  // роль текущего пользователя попадает в журнал действий (в Dynamics 365 сюда можно подставить имя из Xrm)
+  const role = document.body && document.body.dataset.role;
+  if (role) init.headers['X-CQA-Role'] = role;
+  const user = window.CQA_CONFIG && window.CQA_CONFIG.user;
+  if (user) init.headers['X-CQA-User'] = encodeURIComponent(String(user));
   if (body !== undefined) {
     init.headers['Content-Type'] = 'application/json';
     init.body = JSON.stringify(body);
@@ -85,8 +90,8 @@ export const api = {
   settings: () => get('/api/settings'),
   saveSettings: (partial) => put('/api/settings', partial),
   stats: (params) => get('/api/stats', params),
-  anthropicKey: () => get('/api/settings/anthropic-key'),
-  saveAnthropicKey: (key) => post('/api/settings/anthropic-key', { key }),
+  modelKey: () => get('/api/settings/model-key'),
+  saveModelKey: (key) => post('/api/settings/model-key', { key }),
 
   // данные
   fetchDataset: (group_id, source_url) => post('/api/datasets/fetch', source_url ? { group_id, source_url } : { group_id }),
@@ -124,6 +129,15 @@ export const api = {
 
   // калибровка и экспорт
   calibration: (group_id) => get('/api/calibration', { group_id }),
+
+  // results.json в формате организаторов + проверка
+  results: (group_id, expect) => get('/api/results', { group_id, expect }),
+
+  // интеграции и журнал действий
+  integrations: () => get('/api/integrations'),
+  deliveries: (limit = 20) => get('/api/integrations/deliveries', { limit }),
+  testWebhook: (url) => post('/api/integrations/webhook/test', url ? { url } : {}),
+  audit: (params) => get('/api/audit', params),
 };
 
 export const audioUrl = (dialogId) => `${apiBase()}/api/audio/${enc(dialogId)}`;

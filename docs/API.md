@@ -9,7 +9,7 @@
 - `cqa/prompting.py` — `build_system/build_schema/build_user`, `build_appeal_system/build_appeal_schema/build_appeal_user`.
 - `cqa/providers.py` — `make_provider(settings)` → объект с `async complete_json(system, user, schema) -> RunResult(data, model, usage, duration_ms, cost_usd, provider)`; `ProviderError`.
 - `cqa/db.py` — SQLite-хелперы и схема таблиц `dialogs, checklists, evaluations, appeals, settings`.
-- `cqa/config.py` — пути, env, `DEFAULT_SETTINGS`, `ANTHROPIC_MODELS`, `cost_usd`.
+- `cqa/config.py` — пути, env, `DEFAULT_SETTINGS`, `normalize_settings` (старый формат настроек), `is_local`, `cost_usd`.
 - `cqa/default_checklist.json` — исходный чек-лист (сидится как версия 1, активная, при пустой таблице).
 
 ## Объект Score (`scoring.compute`)
@@ -23,8 +23,8 @@
 ## Эндпоинты
 
 ### Служебные
-- `GET /api/health` → `{ok, has_anthropic_key, source_configured, version}`
-- `GET /api/settings` → `{settings, models: ANTHROPIC_MODELS, efforts: [...], providers: [{id:"anthropic",label}, {id:"openai_compat",label}], has_anthropic_key}`
+- `GET /api/health` → `{ok, model: {base_url, model, local, has_key, reachable, model_found, error}, source_configured, version}`. `model` - проверка сервера модели (`GET {base_url}/models`, кэш 30 с); при `error` или `reachable=false` интерфейс показывает баннер.
+- `GET /api/settings` → `{settings: {base_url, model, json_mode: schema|object, votes, concurrency, price_input_per_mtok, price_output_per_mtok}, json_modes, local, has_key}`. Модель - любой OpenAI-совместимый endpoint (основная - Qwen3 30B); `local` - сервер в контуре компании (localhost / частная сеть).
 - `PUT /api/settings` (частичный объект) → `{settings}`. Ключи API в настройках не хранятся (только .env).
 - `GET /api/stats` → `{dialogs, evaluated, avg_total, gross_count, open_appeals, total_cost_usd, by_language: {RU:{count,avg}}, by_criterion: {cid: {name, distribution: {value: n}}}}` (по последней завершённой оценке каждого диалога; `?group_id=` — только эта группа; итог = `final_total`, даже если он null).
 
@@ -67,7 +67,7 @@
 
 Алгоритм оценки (`cqa/evaluator.py`):
 1. `prepare(record)`, `render_for_llm`, промпт и схема из `checklist.config`.
-2. `votes` прогонов: первый отдельно (прогрев кэша промпта), остальные параллельно. Ошибки отдельных прогонов не валят оценку, если есть хотя бы один успешный.
+2. `votes` прогонов: первый отдельно (прогрев кэша префикса на сервере модели, например prefix caching в vLLM), остальные параллельно. Ошибки отдельных прогонов не валят оценку, если есть хотя бы один успешный.
 3. Агрегация по критерию: `normalize_value` каждого голоса → большинство; ничья по шкале → медиана (snap к ступени), ничья по бинарному → значение первого прогона. `agreement` = доля голосов за итог. Обоснование/доказательства — из первого прогона с итоговым значением; если за медиану никто не голосовал — из прогона с ближайшим голосом, с пометкой «Итог — медиана голосов (…)». `evidence_turns` фильтруются по существующим индексам; `checked_range` = `[from,to]` если оба ≥0 и валидны, иначе null.
 4. `scoring.compute` → `score` (баллы считаются точными дробями, округление half-up только в конце); `final` = копия (без апелляций). `total`, `final_total`, `gross`, `cost_usd` (сумма), `usage` (сумма), `duration_ms` (wall clock).
 
@@ -87,6 +87,18 @@
 - `GET /api/export?group_id=&format=csv|json` → файл: по каждому диалогу последняя завершённая оценка — итог, финальный итог, грубая ошибка, значение и баллы по каждому критерию.
 - `GET /api/calibration?group_id=` → сравнение последних оценок с `eval/reference_dev.json` (если файл есть): `{available, n_dialogs, overall_exact, total_mae, by_criterion: {cid: {name, exact, n, confusion: {"ref→pred": n}}}, dialogs: [{id, ref_total, pred_total, diffs: [{cid, ref, pred}]}]}`. `ref_total` считается `scoring.compute` по эталонным значениям тем же чек-листом.
 
-### Ключ Claude API из интерфейса
-- `GET /api/settings/anthropic-key` → `{configured, masked}` (`sk-ant-…abcd`, сам ключ никогда не возвращается).
-- `POST /api/settings/anthropic-key` `{key}` → проверяет ключ (`client.models.list`, без затрат токенов), записывает `CQA_ANTHROPIC_API_KEY` в `.env` (chmod 600) и обновляет `config.ANTHROPIC_API_KEY` в памяти. 400 с понятным текстом, если ключ не принят. Ключ не логировать.
+### Ключ API сервера модели из интерфейса (нужен только провайдеру)
+- `GET /api/settings/model-key` → `{configured, masked}` (`sk-o…abcd`, сам ключ никогда не возвращается).
+- `POST /api/settings/model-key` `{key}` → проверяет ключ (`GET {base_url}/models`, без затрат токенов), записывает `CQA_MODEL_API_KEY` в `.env` (chmod 600, где поддерживается) и обновляет `config.MODEL_API_KEY` в памяти. 400 с понятным текстом, если ключ не принят. Ключ не логировать.
+
+### Сдача результатов (results.json)
+- `GET /api/results?group_id=&expect=&final=false&team=` → `{document, errors, count, ok, error}`: файл в формате приложения к гайду (JSON 1.0) и список нарушений формата (пустой - можно сдавать). `expect` - требуемое число записей (для prod - 10). По умолчанию автоматическая оценка системы; `final=true` - с решениями по апелляциям.
+- `GET /api/export?group_id=&format=results` → тот же документ файлом `results.json`.
+- CLI: `python -m cqa.results --group <id> [--fetch] [--evaluate] [--expect 10] --out ../results/prod/results.json` (см. `results/README.md`).
+
+### Интеграции и журнал действий
+- `GET /api/audit?entity=appeal|checklist|evaluation|dataset|settings&entity_id=&event=&limit=200` → `{items: [{id, at, event, entity, entity_id, actor, summary, data}]}` (новые первыми). Пишутся: `dataset.fetched|imported`, `evaluation.started|rerun`, `appeal.created|ai_review|decided` (с итогом до/после), `checklist.created|activated`, `settings.changed|api_key_changed`. `actor` - автор/проверяющий из тела, иначе заголовок `X-CQA-User` (URL-кодированный) или `X-CQA-Role`.
+- `GET /api/integrations` → `{webhooks: {configured, urls (подписи скрыты), signed, events, last}, public_url, cors_origins, openapi, swagger, postman}`.
+- `GET /api/integrations/deliveries?limit=50` → `{items: [{event_id, event, url, status: pending|ok|error, http_status, error, attempts, created_at, delivered_at}]}`.
+- `POST /api/integrations/webhook/test` `{url?}` → `{event, deliveries}`: тестовое событие на настроенные адреса или на `url`; 400, если адресов нет.
+- Вебхуки (`CQA_WEBHOOK_URLS`, `CQA_WEBHOOK_SECRET`, `CQA_PUBLIC_URL`): POST JSON `{id, event, occurred_at, source: "cqa", version: 1, url, data}`, заголовки `X-CQA-Event`, `X-CQA-Delivery`, `X-CQA-Signature: sha256=<HMAC>`; события `evaluation.completed|failed`, `appeal.created|decided`, `checklist.created|activated`. До 3 попыток, отправка в фоне. Схема: `dynamics/webhook-schema.json`.

@@ -323,16 +323,32 @@ const dtfShort = new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-di
 
 export const isNum = (x) => typeof x === 'number' && Number.isFinite(x);
 
-/** Ориентировочная стоимость одного прогона по модели, $ (для подсказок перед запуском оценки). */
-export const COST_PER_RUN = { 'claude-opus-5-5': 0.08, 'claude-sonnet-5-5': 0.04, 'claude-haiku-5-5': 0.002 };
+/** Модель в нашем контуре: localhost / частная сеть (как config.is_local на сервере). */
+export function isLocalUrl(url) {
+  let host = '';
+  try { host = new URL(url).hostname.toLowerCase().replace(/^\[|\]$/g, ''); } catch { return false; }
+  return ['localhost', '127.0.0.1', '::1', 'host.docker.internal'].includes(host) || host.endsWith('.local')
+    || /^10\./.test(host) || /^192\.168\./.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host);
+}
 
-/** estimateCost(settings, nDialogs) → {votes, cost, local, model} */
+/** Типичный прогон оценки: чек-лист + факты + транскрипт на входе, JSON по 8 критериям на выходе (токены). */
+export const TYPICAL_RUN_TOKENS = { input: 9000, output: 1500 };
+
+/** estimateCost(settings, nDialogs) → {votes, cost|null, local, model}. cost = null - цена провайдера не задана. */
 export function estimateCost(settings, n = 1) {
   const st = settings || {};
   const votes = Number(st.votes) || 3;
-  if (st.provider === 'openai_compat') return { votes, cost: 0, local: true, model: st.local_model || 'локальная модель' };
-  const per = COST_PER_RUN[st.model] ?? 0.08;
-  return { votes, cost: n * votes * per, local: false, model: st.model || '' };
+  const local = isLocalUrl(st.base_url || '');
+  const pin = Number(st.price_input_per_mtok) || 0;
+  const pout = Number(st.price_output_per_mtok) || 0;
+  const perRun = (TYPICAL_RUN_TOKENS.input * pin + TYPICAL_RUN_TOKENS.output * pout) / 1e6;
+  return { votes, cost: pin || pout ? n * votes * perRun : null, local, model: st.model || '' };
+}
+
+/** Подсказка о затратах перед запуском оценки. */
+export function costHint(est) {
+  if (est.cost != null) return `Ориентировочно ${fmt.money(est.cost)}${est.model ? ` (${est.model})` : ''}.`;
+  return est.local ? 'Модель в контуре компании - без оплаты за токены.' : 'Цена провайдера не задана (Настройки) - стоимость не считается.';
 }
 
 export const fmt = {

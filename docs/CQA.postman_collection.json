@@ -1,0 +1,1284 @@
+{
+  "info": {
+    "name": "CQA - Conversation Quality Analytics",
+    "description": "REST API сервиса оценки качества диалогов. Swagger UI: {{baseUrl}}/docs. Контракт: docs/API.md. Сгенерировано: python -m cqa.postman",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8000"
+    },
+    {
+      "key": "dialogId",
+      "value": "p1-ru-001"
+    },
+    {
+      "key": "checklistId",
+      "value": "1"
+    },
+    {
+      "key": "evaluationId",
+      "value": "1"
+    },
+    {
+      "key": "appealId",
+      "value": "1"
+    },
+    {
+      "key": "modelApiKey",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Служебные",
+      "item": [
+        {
+          "name": "Состояние сервиса",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-CQA-Role",
+                "value": "supervisor"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "health"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Настройки оценки",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-CQA-Role",
+                "value": "supervisor"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/settings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "settings"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Изменить настройки",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-CQA-Role",
+                "value": "supervisor"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/settings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "settings"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"base_url\": \"http://localhost:11434/v1\",\n  \"model\": \"qwen3:30b\",\n  \"votes\": 3\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Статус ключа API сервера модели",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-CQA-Role",
+                "value": "supervisor"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/settings/model-key",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "settings",
+                "model-key"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Сохранить ключ API сервера модели",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-CQA-Role",
+                "value": "supervisor"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/settings/model-key",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "settings",
+                "model-key"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"key\": \"{{modelApiKey}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Сводка по оценкам",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-CQA-Role",
+                "value": "supervisor"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/stats?group_id=DEV",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "stats"
+              ],
+              "query": [
+                {
+                  "key": "group_id",
+                  "value": "DEV",
+                  "disabled": false
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Данные",
+      "item": [
+        {
+          "name": "Загрузить набор из API организаторов",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-CQA-Role",
+                "value": "supervisor"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/datasets/fetch",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "datasets",
+                "fetch"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"group_id\": \"DEV\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Импорт диалогов (JSON или текст)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-CQA-Role",
+                "value": "supervisor"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dialogs/import",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dialogs",
+                "import"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"group_id\": \"UPLOAD\",\n  \"payload\": {\n    \"text\": \"[00:01] Клиент: Здравствуйте, как пополнить счёт?\\n[00:20] Оператор: Здравствуйте! Меня зовут Айгерим. Пополнить можно в приложении: Счёт -> Пополнить.\\n[00:40] Клиент: Спасибо!\\n[00:45] Оператор: Пожалуйста! Остались ли вопросы? Хорошего дня!\",\n    \"conversation_id\": \"postman-001\",\n    \"language\": \"RU\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Список диалогов",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-CQA-Role",
+                "value": "supervisor"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dialogs?group_id=DEV&language=&channel=&q=",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dialogs"
+              ],
+              "query": [
+                {
+                  "key": "group_id",
+                  "value": "DEV",
+                  "disabled": false
+                },
+                {
+                  "key": "language",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "channel",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "q",
+                  "value": "",
+                  "disabled": true
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Диалог: транскрипт, факты, оценки",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-CQA-Role",
+                "value": "supervisor"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/dialogs/{{dialogId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "dialogs",
+                "{{dialogId}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Чек-листы",
+      "item": [
+        {
+          "name": "Версии чек-листов",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-CQA-Role",
+                "value": "supervisor"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/checklists",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "checklists"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Активный чек-лист",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-CQA-Role",
+                "value": "supervisor"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/checklists/active",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "checklists",
+                "active"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Исходный чек-лист",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-CQA-Role",
+                "value": "supervisor"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/checklists/default",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "checklists",
+                "default"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Проверить чек-лист",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-CQA-Role",
+                "value": "supervisor"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/checklists/validate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "checklists",
+                "validate"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"config\": {\n    \"name\": \"Пример\",\n    \"criteria\": []\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Сохранить новую версию чек-листа",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-CQA-Role",
+                "value": "supervisor"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/checklists",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "checklists"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"config\": \"<<вставьте config из GET /api/checklists/active и измените критерий>>\",\n  \"note\": \"замена критерия\",\n  \"activate\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Чек-лист по ID",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-CQA-Role",
+                "value": "supervisor"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/checklists/{{checklistId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "checklists",
+                "{{checklistId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Активировать версию",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-CQA-Role",
+                "value": "supervisor"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/checklists/{{checklistId}}/activate",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "checklists",
+                "{{checklistId}}",
+                "activate"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Оценки",
+      "item": [
+        {
+          "name": "Запустить оценку",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-CQA-Role",
+                "value": "supervisor"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/evaluations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "evaluations"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"dialog_ids\": [\n    \"{{dialogId}}\"\n  ],\n  \"settings\": {\n    \"votes\": 1\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Статус оценок",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-CQA-Role",
+                "value": "supervisor"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/evaluations?ids={{evaluationId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "evaluations"
+              ],
+              "query": [
+                {
+                  "key": "ids",
+                  "value": "{{evaluationId}}",
+                  "disabled": false
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Оценка целиком",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-CQA-Role",
+                "value": "supervisor"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/evaluations/{{evaluationId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "evaluations",
+                "{{evaluationId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Повторить оценку",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-CQA-Role",
+                "value": "supervisor"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/evaluations/{{evaluationId}}/rerun",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "evaluations",
+                "{{evaluationId}}",
+                "rerun"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Апелляции",
+      "item": [
+        {
+          "name": "Подать апелляцию",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-CQA-Role",
+                "value": "supervisor"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/evaluations/{{evaluationId}}/appeals",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "evaluations",
+                "{{evaluationId}}",
+                "appeals"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"criterion_id\": \"c05\",\n  \"comment\": \"Оператор отреагировал на недовольство клиента\",\n  \"author\": \"Супервайзер\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Список апелляций",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-CQA-Role",
+                "value": "supervisor"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/appeals?status=open",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "appeals"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "open",
+                  "disabled": false
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Апелляция с фрагментом диалога",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-CQA-Role",
+                "value": "supervisor"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/appeals/{{appealId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "appeals",
+                "{{appealId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Второе мнение ИИ",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-CQA-Role",
+                "value": "supervisor"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/appeals/{{appealId}}/ai-review",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "appeals",
+                "{{appealId}}",
+                "ai-review"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Решение проверяющего",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-CQA-Role",
+                "value": "supervisor"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/appeals/{{appealId}}/decide",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "appeals",
+                "{{appealId}}",
+                "decide"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"change\",\n  \"value\": \"YES\",\n  \"reason\": \"Эмпатия была в T7\",\n  \"reviewer\": \"Проверяющий\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Аудио",
+      "item": [
+        {
+          "name": "Запись звонка (редирект на mp3)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-CQA-Role",
+                "value": "supervisor"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/audio/{{dialogId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "audio",
+                "{{dialogId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Ссылки на запись звонка",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-CQA-Role",
+                "value": "supervisor"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/audio/{{dialogId}}/info",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "audio",
+                "{{dialogId}}",
+                "info"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Экспорт и калибровка",
+      "item": [
+        {
+          "name": "results.json для сдачи + проверка формата",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-CQA-Role",
+                "value": "supervisor"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/results?group_id=DEV&expect=&final=false",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "results"
+              ],
+              "query": [
+                {
+                  "key": "group_id",
+                  "value": "DEV",
+                  "disabled": false
+                },
+                {
+                  "key": "expect",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "final",
+                  "value": "false",
+                  "disabled": false
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Экспорт CSV / JSON / results.json",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-CQA-Role",
+                "value": "supervisor"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/export?group_id=DEV&format=csv",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "export"
+              ],
+              "query": [
+                {
+                  "key": "group_id",
+                  "value": "DEV",
+                  "disabled": false
+                },
+                {
+                  "key": "format",
+                  "value": "csv",
+                  "disabled": false
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Калибровка с контрольной разметкой",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-CQA-Role",
+                "value": "supervisor"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/calibration?group_id=DEV",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "calibration"
+              ],
+              "query": [
+                {
+                  "key": "group_id",
+                  "value": "DEV",
+                  "disabled": false
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Интеграции и аудит",
+      "item": [
+        {
+          "name": "Журнал действий",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-CQA-Role",
+                "value": "supervisor"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/audit?entity=appeal&entity_id=&limit=50",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "audit"
+              ],
+              "query": [
+                {
+                  "key": "entity",
+                  "value": "appeal",
+                  "disabled": false
+                },
+                {
+                  "key": "entity_id",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "50",
+                  "disabled": false
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Статус интеграций",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-CQA-Role",
+                "value": "supervisor"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/integrations",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "integrations"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Журнал доставок вебхуков",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-CQA-Role",
+                "value": "supervisor"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/integrations/deliveries?limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "integrations",
+                "deliveries"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "disabled": false
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Тестовое событие вебхука",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-CQA-Role",
+                "value": "supervisor"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/integrations/webhook/test",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "integrations",
+                "webhook",
+                "test"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

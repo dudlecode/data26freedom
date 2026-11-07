@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  tests:
+    name: pytest (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run tests
+        working-directory: backend
+        run: python -m pytest -q
+      - name: Postman collection is up to date
+        working-directory: backend
+        run: python -m cqa.postman && git diff --exit-code -- ../docs/CQA.postman_collection.json
+      - name: Validate committed results.json
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, pathlib, sys
+          sys.path.insert(0, "backend")
+          from cqa import results
+          bad = False
+          for name, expect in (("dev", None), ("prod", 10)):
+              p = pathlib.Path("results") / name / "results.json"
+              if not p.exists():
+                  print(f"{p}: ещё нет")
+                  continue
+              errs = results.validate(json.loads(p.read_text(encoding="utf-8")), expect)
+              print(f"{p}: {'OK' if not errs else 'ошибки'}")
+              for e in errs[:20]:
+                  print("  -", e)
+              bad = bad or bool(errs)
+          sys.exit(1 if bad else 0)
+          PY

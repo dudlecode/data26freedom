@@ -1,5 +1,8 @@
-"""Claude API key entered from the UI: verify (models.list, no token cost), persist to .env
-(chmod 600) and update the in-memory config. The key is never logged or returned."""
+"""Ключ API сервера модели, введённый в интерфейсе (нужен провайдерам; своей Ollama / vLLM - нет).
+
+Проверка - GET {base_url}/models без затрат токенов, затем запись CQA_MODEL_API_KEY в .env (chmod 600 там,
+где он поддерживается) и обновление конфигурации в памяти. Ключ не логируется и не возвращается в браузер.
+"""
 
 from __future__ import annotations
 
@@ -7,12 +10,12 @@ import os
 import re
 from pathlib import Path
 
-import anthropic
+import httpx
 
 from . import config
 
 ENV_PATH: Path = config.ROOT / ".env"
-ENV_NAME = "CQA_ANTHROPIC_API_KEY"
+ENV_NAME = "CQA_MODEL_API_KEY"
 
 
 class KeyError_(ValueError):
@@ -23,29 +26,25 @@ def mask(key: str) -> str:
     key = (key or "").strip()
     if not key:
         return ""
-    prefix = "sk-ant-" if key.startswith("sk-ant-") else key[:3]
-    return f"{prefix}…{key[-4:]}"
+    return f"{key[:4]}…{key[-4:]}" if len(key) >= 12 else f"…{key[-2:]}"
 
 
 def status() -> dict:
-    key = config.ANTHROPIC_API_KEY or ""
+    key = config.MODEL_API_KEY or ""
     return {"configured": bool(key), "masked": mask(key) if key else ""}
 
 
-async def verify(key: str) -> None:
-    client = anthropic.AsyncAnthropic(api_key=key, base_url=config.ANTHROPIC_BASE_URL, max_retries=1, timeout=30.0)
+async def verify(key: str, base_url: str | None = None) -> None:
+    url = (base_url or config.MODEL_BASE_URL).rstrip("/") + "/models"
     try:
-        await client.models.list(limit=1)
-    except anthropic.AuthenticationError as e:
-        raise KeyError_("Ключ не принят Claude API (401): проверьте, что он скопирован полностью и не отозван.") from e
-    except anthropic.PermissionDeniedError as e:
-        raise KeyError_("Ключ принят, но у него нет доступа к API (403).") from e
-    except anthropic.APIStatusError as e:
-        raise KeyError_(f"Claude API вернул ошибку {e.status_code} при проверке ключа.") from e
-    except anthropic.APIConnectionError as e:
-        raise KeyError_("Нет соединения с Claude API — ключ не удалось проверить.") from e
-    finally:
-        await client.close()
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.get(url, headers={"Authorization": f"Bearer {key}"})
+    except httpx.HTTPError as e:
+        raise KeyError_(f"Нет соединения с сервером модели ({url}) - ключ не удалось проверить.") from e
+    if r.status_code in (401, 403):
+        raise KeyError_(f"Сервер модели не принял ключ ({r.status_code}): проверьте, что он скопирован полностью и не отозван.")
+    if r.status_code >= 400 and r.status_code != 404:  # 404: endpoint без /models - ключ проверим при оценке
+        raise KeyError_(f"Сервер модели вернул ошибку {r.status_code} при проверке ключа.")
 
 
 def write_env(key: str, path: Path | None = None) -> None:
@@ -71,14 +70,14 @@ def write_env(key: str, path: Path | None = None) -> None:
     os.chmod(path, 0o600)
 
 
-async def save(key: str) -> dict:
+async def save(key: str, base_url: str | None = None) -> dict:
     key = (key or "").strip()
     if not key:
-        raise KeyError_("Введите ключ Claude API.")
-    if any(ch.isspace() for ch in key) or len(key) < 20:
-        raise KeyError_("Похоже, это не ключ Claude API: ключ — одна строка без пробелов, обычно начинается с sk-ant-.")
-    await verify(key)
+        raise KeyError_("Введите ключ API сервера модели.")
+    if any(ch.isspace() for ch in key) or len(key) < 8:
+        raise KeyError_("Похоже, это не ключ API: ключ - одна строка без пробелов.")
+    await verify(key, base_url)
     write_env(key)
-    config.ANTHROPIC_API_KEY = key
+    config.MODEL_API_KEY = key
     os.environ[ENV_NAME] = key
     return status()

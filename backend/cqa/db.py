@@ -72,9 +72,35 @@ CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT
 );
+CREATE TABLE IF NOT EXISTS audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    at TEXT NOT NULL,
+    event TEXT NOT NULL,             -- appeal.created | appeal.decided | checklist.created | ...
+    entity TEXT,                     -- appeal | evaluation | checklist | settings | dataset
+    entity_id TEXT,
+    actor TEXT,
+    summary TEXT,
+    data TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_audit_entity ON audit_log(entity, entity_id);
+CREATE TABLE IF NOT EXISTS webhook_deliveries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id TEXT NOT NULL,
+    event TEXT NOT NULL,
+    url TEXT NOT NULL,
+    status TEXT NOT NULL,            -- pending | ok | error
+    http_status INTEGER,
+    error TEXT,
+    attempts INTEGER DEFAULT 0,
+    payload TEXT,
+    created_at TEXT,
+    delivered_at TEXT
+);
 """
 
-JSON_COLS = {"transcript", "config", "settings", "result", "final", "usage", "original", "ai_opinion", "value"}
+JSON_COLS = {
+    "transcript", "config", "settings", "result", "final", "usage", "original", "ai_opinion", "value", "data", "payload",
+}
 
 
 def now() -> str:

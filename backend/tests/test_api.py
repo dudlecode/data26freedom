@@ -35,17 +35,50 @@ def wait_done(c: TestClient, ids: list[int], timeout: float = 10.0) -> list[dict
 
 def test_health_settings_seed(client):
     h = client.get("/api/health").json()
-    assert h["ok"] is True and {"has_anthropic_key", "source_configured", "version"} <= set(h)
+    assert h["ok"] is True and {"model", "source_configured", "version"} <= set(h)
+    assert {"base_url", "model", "local", "reachable", "error"} <= set(h["model"])
     s = client.get("/api/settings").json()
-    assert s["settings"]["provider"] == "anthropic" and s["models"] and s["efforts"]
-    assert [p["id"] for p in s["providers"]] == ["anthropic", "openai_compat"]
-    r = client.put("/api/settings", json={"votes": 2, "effort": "medium", "api_key": "nope"}).json()
-    assert r["settings"]["votes"] == 2 and r["settings"]["effort"] == "medium" and "api_key" not in r["settings"]
+    assert s["settings"]["model"].startswith("qwen3") and s["json_modes"] == ["schema", "object"]
+    assert s["local"] is True and "provider" not in s["settings"]
+    r = client.put("/api/settings", json={"votes": 2, "model": "qwen3-30b-a3b", "api_key": "nope",
+                                          "base_url": "https://llm.example.kz/v1/", "price_input_per_mtok": "0.1"}).json()
+    st = r["settings"]
+    assert st["votes"] == 2 and st["model"] == "qwen3-30b-a3b" and "api_key" not in st
+    assert st["base_url"] == "https://llm.example.kz/v1" and st["price_input_per_mtok"] == 0.1
+    assert client.get("/api/settings").json()["local"] is False
     assert client.put("/api/settings", json={"votes": 0}).status_code == 400
+    assert client.put("/api/settings", json={"base_url": "ftp://x"}).status_code == 400
+    assert client.put("/api/settings", json={"price_output_per_mtok": -1}).status_code == 400
+    assert client.put("/api/settings", json={"json_mode": "xml"}).status_code == 400
     lst = client.get("/api/checklists").json()["items"]
     assert len(lst) == 1 and lst[0]["version"] == 1 and lst[0]["is_active"] and lst[0]["total_weight"] == 100
-    k = client.get("/api/settings/anthropic-key").json()
+    k = client.get("/api/settings/model-key").json()
     assert set(k) == {"configured", "masked"}
+
+
+def test_legacy_settings_are_migrated(client):
+    from cqa import config, db
+
+    # база со старым облачным провайдером: его модель не переносится, свой сервер - переносится
+    db.set_setting("settings", {"provider": "cloud", "model": "old-cloud-model", "effort": "high", "votes": 2})
+    st = client.get("/api/settings").json()["settings"]
+    assert st["model"] == config.DEFAULT_SETTINGS["model"] and st["votes"] == 2 and "effort" not in st
+    db.set_setting("settings", {"provider": "openai_compat", "local_base_url": "http://10.0.0.5:8000/v1",
+                                "local_model": "qwen3:30b-cqa", "local_json_mode": "object"})
+    st = client.get("/api/settings").json()["settings"]
+    assert (st["base_url"], st["model"], st["json_mode"]) == ("http://10.0.0.5:8000/v1", "qwen3:30b-cqa", "object")
+
+
+def test_cost_and_locality():
+    from cqa import config
+
+    assert config.cost_usd({"price_input_per_mtok": 0.1, "price_output_per_mtok": 0.3},
+                           {"input_tokens": 10_000, "output_tokens": 1_000}) == pytest.approx(0.0013)
+    assert config.cost_usd({}, {"input_tokens": 10_000}) is None
+    for url, local in [("http://localhost:11434/v1", True), ("http://192.168.1.20:8000/v1", True),
+                       ("http://172.20.0.3/v1", True), ("https://openrouter.ai/api/v1", False),
+                       ("https://api.together.xyz/v1", False)]:
+        assert config.is_local(url) is local, url
 
 
 def test_full_flow(client):
@@ -176,12 +209,12 @@ def test_errors_and_failed_provider(client, monkeypatch):
         name, model = "stub", "stub-model"
 
         async def complete_json(self, *a):
-            raise providers.ProviderError("Ключ Claude API не принят (401).")
+            raise providers.ProviderError("Сервер модели не принял ключ API (401).")
 
     monkeypatch.setattr(providers, "make_provider", lambda s: Failing())
     ids = client.post("/api/evaluations", json={"dialog_ids": ["t1"], "settings": {"votes": 2}}).json()["evaluation_ids"]
     item = wait_done(client, ids)[0]
-    assert item["status"] == "error" and item["error"] == "Ключ Claude API не принят (401)."
+    assert item["status"] == "error" and item["error"] == "Сервер модели не принял ключ API (401)."
     assert client.post(f"/api/evaluations/{ids[0]}/appeals", json={"criterion_id": "c01"}).status_code == 409
     full = client.get(f"/api/evaluations/{ids[0]}").json()
     assert len(full["result"]["runs"]) == 2 and all(r["error"] for r in full["result"]["runs"])

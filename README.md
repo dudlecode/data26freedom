@@ -10,11 +10,11 @@
 git clone <repo> && cd data26freedom
 uv venv --python 3.12 .venv
 uv pip install --python .venv/bin/python -r requirements.txt
-cp .env.example .env          # впишите CQA_SOURCE_URL (ссылка GET из гайда)
+cp .env.example .env          # CQA_SOURCE_URL (ссылка GET из гайда), адрес и модель сервера модели
 cd backend && ../.venv/bin/python -m cqa
 ```
 
-Откройте http://127.0.0.1:8000. Ключ Claude API можно ввести прямо в интерфейсе: **Настройки → Ключ Claude API** (ключ проверяется и сохраняется только на сервере, в `.env`). Либо впишите `CQA_ANTHROPIC_API_KEY` в `.env` до запуска.
+Откройте http://127.0.0.1:8000. Модель оценки - **Qwen3 30B** через любой OpenAI-совместимый API: адрес сервера (`CQA_MODEL_BASE_URL`) и модель (`CQA_MODEL`) задаются в `.env` или в **Настройках**. Ключ нужен только провайдеру: **Настройки → Ключ API сервера модели** (проверяется и сохраняется только на сервере, в `.env`). Если сервер модели недоступен, вверху появляется баннер.
 
 Дальше: **Диалоги → `DEV` → Загрузить из API → Оценить все**. Для контрольного набора введите выданный `group_id` и нажмите «Загрузить из API».
 
@@ -35,7 +35,7 @@ cd backend && ../.venv/bin/python -m cqa
 
 ## Точность на DEV
 
-Полный прогон 65 диалогов DEV (Claude Opus 5.5, 3 прогона на диалог) против контрольной разметки команды (`eval/reference_dev.json`, это не официальный эталон организаторов):
+**Ориентир для сверки.** Так этот же пайплайн (тот же промпт, голосование и расчёт) отработал у автора прототипа на облачной модели Claude Opus 5.5, 3 прогона на диалог, против контрольной разметки команды (`eval/reference_dev.json`, это не официальный эталон организаторов). Цифры для Qwen3 30B сравниваем с этой таблицей в разделе **Калибровка**:
 
 | Метрика | Значение |
 |---|---|
@@ -47,15 +47,25 @@ cd backend && ../.venv/bin/python -m cqa
 
 Оставшиеся расхождения — пограничные случаи в шкалах «Консультация» (15 или 20) и «Ведение диалога» (4 или 7).
 
-## Модели и стоимость
+## Модель и стоимость
 
-| Режим | Модель | Где работает |
+Модель - **Qwen3 30B** (MoE, ~3 млрд активных параметров на токен), открытые веса. Один код работает с любым OpenAI-совместимым сервером (`POST /chat/completions`, ответ строго по JSON-схеме):
+
+| Где запускать | `CQA_MODEL_BASE_URL` | В `results.json` |
 |---|---|---|
-| Основной | **Claude Opus 5.5** (`claude-opus-5-5`), adaptive thinking, effort `high` | Anthropic API |
-| Альтернативы | Claude Sonnet 5.5 / Haiku 5.5 | Anthropic API |
-| Локальный | любая модель через OpenAI-совместимый API (Ollama, LM Studio, vLLM), напр. `qwen3:30b` | в контуре компании |
+| Свой сервер в контуре компании: vLLM / Ollama / LM Studio | `http://<хост>:8000/v1`, `http://localhost:11434/v1` | `mode: local` |
+| Провайдер с OpenAI-совместимым API | адрес провайдера + `CQA_MODEL_API_KEY` | `mode: external_api` |
 
-Стоимость одной оценки на Opus 5.5: ≈ **$0.08 за прогон**, ≈ **$0.11 за диалог** при 3 прогонах (промпт чек-листа и диалог кэшируются, поэтому повторные прогоны дешевле). Точная стоимость каждой оценки показывается в интерфейсе. Включён server-side fallback на случай отказа модели.
+Режим определяется автоматически по адресу (localhost и частная сеть - `local`). Стоимость: укажите цену провайдера `CQA_PRICE_INPUT_PER_MTOK` / `CQA_PRICE_OUTPUT_PER_MTOK` (USD за 1 млн токенов) или в Настройках - тогда стоимость каждой оценки считается по фактическим токенам и видна в «Технических деталях оценки». Для своего сервера цена 0.
+
+**Ollama.** Важно: по умолчанию Ollama даёт окно 4096 токенов и молча обрезает промпт (чек-лист + факты + транскрипт), тогда модель оценивает по куску диалога. Поэтому используйте вариант с окном 16k из [`ollama/Modelfile.qwen3-30b-cqa`](ollama/Modelfile.qwen3-30b-cqa) - веса не копируются:
+
+```bash
+ollama pull qwen3:30b
+ollama create qwen3:30b-cqa -f ollama/Modelfile.qwen3-30b-cqa
+```
+
+В интерфейсе: **Настройки → Модель `qwen3:30b-cqa`** (или `CQA_MODEL=qwen3:30b-cqa` в `.env`). Признак обрезки - в «Технических деталях оценки» входных токенов ровно 4096.
 
 ## Возможности
 
@@ -66,17 +76,41 @@ cd backend && ../.venv/bin/python -m cqa
 - **Калибровка**: сравнение оценок с собственной контрольной разметкой команды (`eval/reference_dev.json`) — точность по критериям, матрица расхождений, MAE итога.
 - **Экспорт** CSV (Excel, `;`) и JSON.
 
-## Интеграция с Dynamics 365
+## Сдача результатов (results.json)
 
-Интерфейс — чистые HTML/CSS/ES-модули без сборки и внешних зависимостей. Базовый адрес API задаётся в `frontend/config.js` (`window.CQA_CONFIG.apiBase`), каждый экран монтируется в любой контейнер (`mount(container, ctx)`), поэтому файлы можно загрузить как веб-ресурсы Dynamics 365. Для запросов с другого домена задайте `CQA_CORS_ORIGINS`.
+`results/dev/results.json` и `results/prod/results.json` в формате приложения к гайду (JSON 1.0) собираются кодом и проверяются перед записью, подробности и команды: [`results/README.md`](results/README.md). Контрольный набор одной командой - загрузка из API, оценка, проверка, запись:
+
+```bash
+cd backend && ../.venv/bin/python -m cqa.results --group <group_id> --fetch --evaluate --expect 10 --out ../results/prod/results.json
+```
+
+В интерфейсе: **Диалоги** → группа → **results.json**.
+
+## Интеграции: Dynamics 365, Power Automate, REST
+
+Подробно, со схемой и пошаговой настройкой: [`dynamics/README.md`](dynamics/README.md).
+
+- **Карточка оценки на форме Dynamics 365.** Интерфейс - чистые HTML/CSS/ES-модули без сборки, каждый экран монтируется в любой контейнер (`mount(container, ctx)`). Готовый веб-ресурс [`dynamics/cqa_dialog_card.html`](dynamics/cqa_dialog_card.html) берёт ID разговора из поля записи или параметра `data` и открывает CQA в режиме встраивания: `/?embed=1&data=dialog%3Dp1-ru-001` (без шапки, роль и имя пользователя CRM уходят в журнал действий). Можно и загрузить `frontend/` как веб-ресурсы: `apiBase` в `frontend/config.js` + `CQA_CORS_ORIGINS`.
+- **События в Power Automate (вебхуки).** `CQA_WEBHOOK_URLS` в `.env` - и события `evaluation.completed`, `evaluation.failed`, `appeal.created`, `appeal.decided`, `checklist.created`, `checklist.activated` уходят POST JSON (схема для триггера «When an HTTP request is received»: [`dynamics/webhook-schema.json`](dynamics/webhook-schema.json)). Подпись HMAC-SHA256 (`CQA_WEBHOOK_SECRET`), до 3 попыток, журнал доставок и кнопка тестового события - в **Настройки → Интеграции**.
+- **Журнал действий.** Кто, когда и что сделал: апелляции и решения (с итогом до/после), версии чек-листов, запуски оценки, загрузка данных, смена настроек. **Настройки → Журнал действий** или `GET /api/audit`.
+- **REST API.** Swagger UI: http://127.0.0.1:8000/docs, OpenAPI: `/openapi.json`, контракт: [`docs/API.md`](docs/API.md), коллекция Postman: [`docs/CQA.postman_collection.json`](docs/CQA.postman_collection.json) (генерируется `python -m cqa.postman`, тест следит, что в ней все эндпоинты).
+- **Excel.** Экспорт CSV с разделителем `;` и BOM открывается в Excel без настройки; JSON - для ETL.
+
+## Качество кода
+
+`cd backend && ../.venv/bin/python -m pytest -q` - тесты оценки и расчёта баллов, полного API-сценария (импорт → чек-лист → оценка → апелляция → решение), интеграций (вебхуки без сети через `httpx.MockTransport`, подпись, повторы, аудит) и полноты коллекции Postman. Они же запускаются в GitHub Actions на каждый push (`.github/workflows/ci.yml`, Ubuntu и Windows).
 
 ## Структура
 
 ```
 backend/cqa/   app.py (API), evaluator.py, preprocess.py, prompting.py, providers.py,
-               scoring.py, sources.py, audio.py, calibration.py, db.py, default_checklist.json
+               scoring.py, sources.py, audio.py, calibration.py, db.py, default_checklist.json,
+               results.py (results.json для сдачи), integrations.py (вебхуки, журнал действий),
+               postman.py (генерация коллекции Postman)
 backend/tests/ pytest
 frontend/      index.html, config.js, css/, js/ (api, ui, transcript, views/*)
-docs/API.md    контракт API
+dynamics/      веб-ресурс Dynamics 365, схема вебхука для Power Automate, инструкция
+docs/          API.md (контракт), CQA.postman_collection.json
+results/       dev/results.json, prod/results.json - результаты для организаторов
 eval/          контрольная разметка DEV
 ```

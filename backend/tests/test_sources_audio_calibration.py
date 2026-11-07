@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from cqa import audio, calibration, keys, sources
@@ -106,23 +108,24 @@ def test_calibration_math(checklist):
 # --- key handling (no network) ------------------------------------------------------------
 
 def test_key_mask_and_env_write(tmp_path, monkeypatch):
-    assert keys.mask("sk-ant-api03-XXXXXXXXXXXXabcd") == "sk-ant-…abcd"
+    assert keys.mask("sk-or-v1-XXXXXXXXXXXXabcd") == "sk-o…abcd"
     env = tmp_path / ".env"
-    env.write_text("A=1\nCQA_ANTHROPIC_API_KEY=old\nB=2\n", encoding="utf-8")
+    env.write_text("A=1\nCQA_MODEL_API_KEY=old\nB=2\n", encoding="utf-8")
     monkeypatch.setattr(keys, "ENV_PATH", env)
-    monkeypatch.setattr(keys.config, "ANTHROPIC_API_KEY", "")
-    monkeypatch.setenv("CQA_ANTHROPIC_API_KEY", "")
+    monkeypatch.setattr(keys.config, "MODEL_API_KEY", "")
+    monkeypatch.setenv("CQA_MODEL_API_KEY", "")
 
-    async def ok(_key):
+    async def ok(_key, _base=None):
         return None
 
     monkeypatch.setattr(keys, "verify", ok)
     import asyncio
 
-    st = asyncio.run(keys.save("sk-ant-test-0123456789-wxyz"))
-    assert st == {"configured": True, "masked": "sk-ant-…wxyz"}
-    assert env.read_text(encoding="utf-8") == "A=1\nCQA_ANTHROPIC_API_KEY=sk-ant-test-0123456789-wxyz\nB=2\n"
-    assert (env.stat().st_mode & 0o777) == 0o600
+    st = asyncio.run(keys.save("sk-or-test-0123456789-wxyz"))
+    assert st == {"configured": True, "masked": "sk-o…wxyz"}
+    assert env.read_text(encoding="utf-8") == "A=1\nCQA_MODEL_API_KEY=sk-or-test-0123456789-wxyz\nB=2\n"
+    if os.name != "nt":  # на Windows POSIX-права chmod не выставляет: доступ к .env ограничивается ACL профиля
+        assert (env.stat().st_mode & 0o777) == 0o600
     with pytest.raises(keys.KeyError_):
         asyncio.run(keys.save("short"))
 

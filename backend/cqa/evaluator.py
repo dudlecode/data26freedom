@@ -14,7 +14,7 @@ from . import prompting, scoring
 from .preprocess import prepare, render_for_llm
 from .providers import ProviderError, RunResult
 
-USAGE_KEYS = ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
+USAGE_KEYS = ("input_tokens", "output_tokens")
 
 
 def _criteria(cfg: dict[str, Any]) -> list[dict[str, Any]]:

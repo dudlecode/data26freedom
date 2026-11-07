@@ -12,6 +12,7 @@ import math
 import os
 from contextlib import asynccontextmanager
 from typing import Any
+from urllib.parse import unquote
 
 from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
@@ -20,14 +21,12 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from . import audio, calibration, config, db, evaluator, keys, prompting, providers, scoring, sources
+from . import integrations as ig
+from . import results as results_mod
 from .preprocess import prepare, render_for_llm
 
 VERSION = "1.0.0"
-EFFORTS = ["low", "medium", "high", "xhigh", "max"]
-PROVIDERS = [
-    {"id": "anthropic", "label": "Claude (Anthropic API)"},
-    {"id": "openai_compat", "label": "Локальная / OpenAI-совместимая модель"},
-]
+JSON_MODES = ["schema", "object"]
 STALE_ERROR = "прервано перезапуском сервера"
 
 log = logging.getLogger("cqa")
@@ -62,18 +61,23 @@ def sanitize_settings(patch: dict[str, Any] | None) -> dict[str, Any]:
             if not lo <= n <= hi:
                 raise err(400, f"Параметр {k} должен быть от {lo} до {hi}.")
             out[k] = n
-        elif k == "effort":
-            if v not in EFFORTS:
-                raise err(400, f"Недопустимый уровень effort: {v}. Допустимо: {', '.join(EFFORTS)}.")
+        elif k in ("price_input_per_mtok", "price_output_per_mtok"):
+            try:
+                f = float(v)
+            except (TypeError, ValueError):
+                raise err(400, f"Параметр {k} должен быть числом (USD за 1 млн токенов).")
+            if not math.isfinite(f) or f < 0:
+                raise err(400, f"Параметр {k} не может быть отрицательным.")
+            out[k] = f
+        elif k == "json_mode":
+            if v not in JSON_MODES:
+                raise err(400, "json_mode: допустимо schema или object.")
             out[k] = v
-        elif k == "provider":
-            if v not in {p["id"] for p in PROVIDERS}:
-                raise err(400, f"Неизвестный провайдер: {v}.")
-            out[k] = v
-        elif k == "local_json_mode":
-            if v not in ("schema", "object"):
-                raise err(400, "local_json_mode: допустимо schema или object.")
-            out[k] = v
+        elif k == "base_url":
+            u = str(v).strip().rstrip("/")
+            if not u.lower().startswith(("http://", "https://")):
+                raise err(400, "Адрес сервера модели должен начинаться с http:// или https://")
+            out[k] = u
         else:
             s = str(v).strip()
             if not s:
@@ -86,6 +90,7 @@ def get_settings() -> dict[str, Any]:
     stored = db.get_setting("settings", {}) or {}
     merged = {**config.DEFAULT_SETTINGS}
     if isinstance(stored, dict):
+        stored = config.normalize_settings(stored)
         merged.update({k: v for k, v in stored.items() if k in config.DEFAULT_SETTINGS})
     return merged
 
@@ -173,10 +178,7 @@ def eval_model(e: dict[str, Any]) -> str | None:
     for run in (result or {}).get("runs", []) or []:
         if not run.get("error") and run.get("model"):
             return run["model"]
-    s = e.get("settings") or {}
-    if s.get("provider") == "openai_compat":
-        return s.get("local_model")
-    return s.get("model")
+    return config.normalize_settings(e.get("settings")).get("model")
 
 
 def eval_summary(e: dict[str, Any], counts: dict[int, dict[str, int]] | None = None) -> dict[str, Any]:
@@ -378,6 +380,7 @@ async def run_evaluation(eval_id: int) -> None:
                 "finished_at": db.now(),
             },
         )
+        emit_evaluation(eval_id)
     except Exception as ex:  # noqa: BLE001
         if isinstance(ex, providers.ProviderError):
             msg = str(ex)
@@ -391,6 +394,7 @@ async def run_evaluation(eval_id: int) -> None:
             patch["cost_usd"] = getattr(ex, "cost_usd", None)
             patch["usage"] = getattr(ex, "usage", None)
         db.update("evaluations", eval_id, patch)
+        emit_evaluation(eval_id)
 
 
 # --- app --------------------------------------------------------------------------------
@@ -398,6 +402,7 @@ async def run_evaluation(eval_id: int) -> None:
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     seed_and_recover()
+    ig.bind_loop(asyncio.get_running_loop())
     yield
 
 
@@ -421,6 +426,35 @@ async def _validation_handler(_request: Request, exc: RequestValidationError):
     return JSONResponse(status_code=422, content={"detail": "Некорректный запрос: " + "; ".join(msgs)})
 
 
+def actor_of(request: Request | None, *candidates: Any) -> str:
+    """Кто выполнил действие: явное имя из тела (автор/проверяющий), иначе заголовки X-CQA-User / X-CQA-Role."""
+    for c in candidates:
+        if c and str(c).strip():
+            return str(c).strip()
+    if request is not None:
+        for h in ("x-cqa-user", "x-cqa-role"):
+            v = request.headers.get(h)
+            if v and v.strip():
+                return unquote(v.strip())[:120]
+    return ""
+
+
+def emit_evaluation(eval_id: int) -> None:
+    """Событие о завершении оценки. Никогда не бросает исключений: интеграции не ломают оценку."""
+    if not ig.webhook_urls():
+        return
+    try:
+        e = db.one("SELECT * FROM evaluations WHERE id = ?", [eval_id])
+        if not e:
+            return
+        d = db.one("SELECT id, group_id, channel, language FROM dialogs WHERE id = ?", [e["dialog_id"]])
+        cl = checklist_cached(e["checklist_id"])
+        event = "evaluation.completed" if e["status"] == "done" else "evaluation.failed"
+        ig.emit(event, ig.evaluation_payload(e, d, cl), url=ig.card_url(f"/dialog/{e['dialog_id']}"))
+    except Exception:  # noqa: BLE001
+        log.exception("webhook for evaluation %s failed", eval_id)
+
+
 def body_dict(body: Any) -> dict[str, Any]:
     if body is None:
         return {}
@@ -432,49 +466,92 @@ def body_dict(body: Any) -> dict[str, Any]:
 # --- service ---
 
 @app.get("/api/health")
-def health():
+async def health():
+    st = get_settings()
     return {
         "ok": True,
-        "has_anthropic_key": bool(config.ANTHROPIC_API_KEY),
+        "model": await model_status(st),
         "source_configured": bool(config.SOURCE_URL),
         "version": VERSION,
     }
 
 
+_model_status_cache: dict[str, Any] = {"key": None, "at": 0.0, "value": None}
+
+
+async def model_status(st: dict[str, Any]) -> dict[str, Any]:
+    """Доступен ли сервер модели (GET {base_url}/models, кэш 30 с, чтобы не дёргать его на каждый опрос)."""
+    import time
+
+    import httpx
+
+    base, model = st.get("base_url") or config.MODEL_BASE_URL, st.get("model")
+    key = (base, model, bool(config.MODEL_API_KEY))
+    c = _model_status_cache
+    if c["key"] == key and time.time() - c["at"] < 30:
+        return c["value"]
+    out = {"base_url": base, "model": model, "local": config.is_local(base), "has_key": bool(config.MODEL_API_KEY),
+           "reachable": False, "model_found": None, "error": None}
+    headers = {"Authorization": f"Bearer {config.MODEL_API_KEY}"} if config.MODEL_API_KEY else {}
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            r = await client.get(base.rstrip("/") + "/models", headers=headers)
+        out["reachable"] = r.status_code < 500
+        if r.status_code in (401, 403):
+            out["error"] = f"сервер модели не принял ключ ({r.status_code})"
+        elif r.status_code == 200:
+            ids = [m.get("id") for m in (r.json().get("data") or []) if isinstance(m, dict)]
+            out["model_found"] = model in ids if ids else None
+            if ids and model not in ids:
+                out["error"] = f"модели {model} нет на сервере"
+    except Exception as e:  # noqa: BLE001
+        out["error"] = f"сервер модели недоступен ({type(e).__name__})"
+    c.update(key=key, at=time.time(), value=out)
+    return out
+
+
 @app.get("/api/settings")
 def settings_get():
+    st = get_settings()
     return {
-        "settings": get_settings(),
-        "models": config.ANTHROPIC_MODELS,
-        "efforts": EFFORTS,
-        "providers": PROVIDERS,
-        "has_anthropic_key": bool(config.ANTHROPIC_API_KEY),
+        "settings": st,
+        "json_modes": JSON_MODES,
+        "local": config.is_local(st.get("base_url")),
+        "has_key": bool(config.MODEL_API_KEY),
     }
 
 
 @app.put("/api/settings")
-def settings_put(body: Any = Body(default=None)):
+def settings_put(request: Request, body: Any = Body(default=None)):
     patch = sanitize_settings(body_dict(body))
     stored = db.get_setting("settings", {}) or {}
     if not isinstance(stored, dict):
         stored = {}
+    before = {k: stored.get(k, config.DEFAULT_SETTINGS.get(k)) for k in patch}
     stored.update(patch)
     db.set_setting("settings", stored)
+    _model_status_cache["key"] = None
+    changed = {k: {"from": before[k], "to": v} for k, v in patch.items() if before[k] != v}
+    if changed:
+        ig.audit("settings.changed", "settings", None, "Изменены настройки: " + ", ".join(changed), actor_of(request), changed)
     return {"settings": get_settings()}
 
 
-@app.get("/api/settings/anthropic-key")
+@app.get("/api/settings/model-key")
 def key_get():
     return keys.status()
 
 
-@app.post("/api/settings/anthropic-key")
-async def key_post(body: Any = Body(default=None)):
+@app.post("/api/settings/model-key")
+async def key_post(request: Request, body: Any = Body(default=None)):
     key = body_dict(body).get("key")
     try:
-        return await keys.save(str(key or ""))
+        st = await keys.save(str(key or ""), get_settings().get("base_url"))
     except keys.KeyError_ as e:
         raise err(400, str(e))
+    _model_status_cache["key"] = None
+    ig.audit("settings.api_key_changed", "settings", None, f"Обновлён ключ API сервера модели ({st.get('masked')})", actor_of(request))
+    return st
 
 
 @app.get("/api/stats")
@@ -573,7 +650,7 @@ def payload_group(payload: Any) -> str | None:
 
 
 @app.post("/api/datasets/fetch")
-async def datasets_fetch(body: Any = Body(default=None)):
+async def datasets_fetch(request: Request, body: Any = Body(default=None)):
     b = body_dict(body)
     group_id = str(b.get("group_id") or "").strip()
     try:
@@ -582,11 +659,13 @@ async def datasets_fetch(body: Any = Body(default=None)):
         raise err(e.status, str(e))
     renamed: dict[str, str] = {}
     ids = upsert_records(records, gid, "api", renamed)
+    ig.audit("dataset.fetched", "dataset", gid, f"Загружено из API: {len(ids)} диалогов, группа {gid}", actor_of(request),
+             {"count": len(ids), "renamed": renamed})
     return {"group_id": gid, "imported": len(ids), "ids": ids, "renamed": renamed}
 
 
 @app.post("/api/dialogs/import")
-def dialogs_import(body: Any = Body(default=None)):
+def dialogs_import(request: Request, body: Any = Body(default=None)):
     b = body_dict(body)
     if "payload" not in b:
         raise err(400, "Передайте поле payload с данными диалогов.")
@@ -600,6 +679,8 @@ def dialogs_import(body: Any = Body(default=None)):
         raise err(400, "Не найдено ни одной записи диалога.")
     renamed: dict[str, str] = {}
     ids = upsert_records(records, group_id, "upload", renamed)
+    ig.audit("dataset.imported", "dataset", group_id, f"Импортировано: {len(ids)} диалогов, группа {group_id}", actor_of(request),
+             {"count": len(ids), "ids": ids[:50], "renamed": renamed})
     return {"imported": len(ids), "ids": ids, "group_id": group_id, "renamed": renamed}
 
 
@@ -802,7 +883,7 @@ def checklists_validate(body: Any = Body(default=None)):
 
 
 @app.post("/api/checklists")
-def checklists_create(body: Any = Body(default=None)):
+def checklists_create(request: Request, body: Any = Body(default=None)):
     b = body_dict(body)
     cfg = b.get("config")
     errors = checklist_errors(cfg)
@@ -824,7 +905,15 @@ def checklists_create(body: Any = Body(default=None)):
     )
     if activate:
         db.execute("UPDATE checklists SET is_active = CASE WHEN id = ? THEN 1 ELSE 0 END", [new_id])
-    return checklist_out(checklist_row(new_id))
+    out = checklist_out(checklist_row(new_id))
+    info = {"id": new_id, "name": cfg["name"], "version": version, "active": activate, "note": out["note"],
+            "criteria": [{"id": c["id"], "name": c.get("name"), "type": c.get("type"), "weight": c.get("weight")}
+                         for c in cfg["criteria"]]}
+    ig.audit("checklist.created", "checklist", new_id,
+             f"Сохранена версия {version} чек-листа «{cfg['name']}»" + (" и активирована" if activate else ""),
+             actor_of(request), info)
+    ig.emit("checklist.created", info, url=ig.card_url("/checklists"))
+    return out
 
 
 @app.get("/api/checklists/{cl_id}")
@@ -833,9 +922,13 @@ def checklists_get(cl_id: int):
 
 
 @app.post("/api/checklists/{cl_id}/activate")
-def checklists_activate(cl_id: int):
-    checklist_row(cl_id)
+def checklists_activate(cl_id: int, request: Request):
+    c = checklist_row(cl_id)
     db.execute("UPDATE checklists SET is_active = CASE WHEN id = ? THEN 1 ELSE 0 END", [cl_id])
+    info = {"id": cl_id, "name": c["name"], "version": c["version"]}
+    ig.audit("checklist.activated", "checklist", cl_id, f"Активирована версия {c['version']} чек-листа «{c['name']}»",
+             actor_of(request), info)
+    ig.emit("checklist.activated", info, url=ig.card_url("/checklists"))
     return {"ok": True}
 
 
@@ -855,7 +948,7 @@ def create_evaluation(dialog_id: str, checklist_id: int, settings: dict[str, Any
 
 
 @app.post("/api/evaluations")
-async def evaluations_create(body: Any = Body(default=None)):
+async def evaluations_create(request: Request, body: Any = Body(default=None)):
     b = body_dict(body)
     ids = b.get("dialog_ids")
     if isinstance(ids, str):
@@ -880,6 +973,10 @@ async def evaluations_create(body: Any = Body(default=None)):
     eval_ids = [create_evaluation(d, cl["id"], settings) for d in ids]
     for eid in eval_ids:
         runner.submit(eid)
+    model = settings.get("model")
+    ig.audit("evaluation.started", "checklist", cl["id"],
+             f"Запущена оценка {len(ids)} диалогов по чек-листу «{cl['name']}» v{cl['version']} ({model})",
+             actor_of(request), {"dialog_ids": ids[:100], "evaluation_ids": eval_ids[:100], "model": model})
     return {"evaluation_ids": eval_ids}
 
 
@@ -934,11 +1031,13 @@ def evaluations_get(eval_id: int):
 
 
 @app.post("/api/evaluations/{eval_id}/rerun")
-async def evaluations_rerun(eval_id: int):
+async def evaluations_rerun(eval_id: int, request: Request):
     e = evaluation_row(eval_id)
     dialog_row(e["dialog_id"])
     new_id = create_evaluation(e["dialog_id"], e["checklist_id"], e.get("settings") or get_settings())
     runner.submit(new_id)
+    ig.audit("evaluation.rerun", "evaluation", new_id, f"Повторная оценка диалога {e['dialog_id']} (вместо #{eval_id})",
+             actor_of(request), {"from": eval_id})
     return {"evaluation_id": new_id}
 
 
@@ -963,7 +1062,7 @@ def criterion_original(e: dict[str, Any], cid: str) -> dict[str, Any]:
 
 
 @app.post("/api/evaluations/{eval_id}/appeals")
-def appeals_create(eval_id: int, body: Any = Body(default=None)):
+def appeals_create(eval_id: int, request: Request, body: Any = Body(default=None)):
     b = body_dict(body)
     e = evaluation_row(eval_id)
     if e["status"] != "done":
@@ -990,7 +1089,14 @@ def appeals_create(eval_id: int, body: Any = Body(default=None)):
             "total_before": e.get("final_total"),
         },
     )
-    return appeal_out(appeal_row(aid), e)
+    out = appeal_out(appeal_row(aid), e)
+    ig.audit("appeal.created", "appeal", aid,
+             f"Апелляция по критерию «{out['criterion_name']}» (оценка #{eval_id}, диалог {e['dialog_id']}), "
+             f"оспаривается значение {original.get('value')}", actor_of(request, out["author"]),
+             {"evaluation_id": eval_id, "dialog_id": e["dialog_id"], "criterion_id": cid, "value": original.get("value"),
+              "comment": out["comment"]})
+    ig.emit("appeal.created", out, url=ig.card_url(f"/appeal/{aid}"))
+    return out
 
 
 @app.get("/api/appeals")
@@ -1091,6 +1197,9 @@ async def appeals_ai_review(appeal_id: int):
         "cost_usd": rr.cost_usd,
     }
     db.execute("UPDATE appeals SET ai_opinion = ? WHERE id = ? AND status = 'open'", [opinion, appeal_id])
+    ig.audit("appeal.ai_review", "appeal", appeal_id,
+             f"Второе мнение ИИ: {opinion['value']} ({'апелляция обоснована' if opinion['appeal_valid'] else 'оценка верна'})",
+             "ИИ " + str(rr.model or ""), {"value": opinion["value"], "appeal_valid": opinion["appeal_valid"]})
     return {"appeal": appeal_out(appeal_row(appeal_id), e)}
 
 
@@ -1154,7 +1263,15 @@ def _appeals_decide_locked(appeal_id: int, b: dict[str, Any]) -> dict[str, Any]:
         {"final": final, "final_total": final_total, "gross": int(bool(final["score"]["gross_error"]))},
     )
     db.update("appeals", appeal_id, {"total_after": final_total})
-    return {"appeal": appeal_out(appeal_row(appeal_id), e), "final_total": final_total}
+    out = appeal_out(appeal_row(appeal_id), e)
+    orig_value = (a.get("original") or {}).get("value")
+    ig.audit("appeal.decided", "appeal", appeal_id,
+             f"Решение по апелляции: {'оценка изменена' if decision == 'changed' else 'оценка подтверждена'} "
+             f"({orig_value} → {value}), итог {total_before} → {final_total}. Причина: {reason}",
+             out["reviewer"], {"decision": decision, "from": orig_value, "to": value, "reason": reason,
+                               "total_before": total_before, "total_after": final_total})
+    ig.emit("appeal.decided", {**out, "final_total": final_total}, url=ig.card_url(f"/appeal/{appeal_id}"))
+    return {"appeal": out, "final_total": final_total}
 
 
 # --- audio ---
@@ -1196,8 +1313,28 @@ def _num(v: Any) -> str:
     return str(v)
 
 
+@app.get("/api/results")
+def results_get(group_id: str, final: bool = False, expect: int | None = None, team: str = ""):
+    """results.json в формате организаторов (приложение к гайду) + проверка формата перед сдачей."""
+    doc = results_mod.build(group_id, team, final)
+    if not doc["results"]:
+        raise err(404, f"В группе {group_id} нет диалогов.")
+    errors = results_mod.validate(doc, expect)
+    ok = sum(1 for r in doc["results"] if r["status"] == "ok")
+    return {"document": doc, "errors": errors, "count": len(doc["results"]), "ok": ok, "error": len(doc["results"]) - ok}
+
+
 @app.get("/api/export")
-def export(group_id: str | None = None, format: str = Query(default="csv")):
+def export(group_id: str | None = None, format: str = Query(default="csv"), final: bool = False):
+    if format == "results":
+        if not group_id:
+            raise err(400, "Для results.json укажите group_id (DEV или контрольный).")
+        doc = results_mod.build(group_id, "", final)
+        return Response(
+            json.dumps(doc, ensure_ascii=False, indent=2),
+            media_type="application/json; charset=utf-8",
+            headers={"Content-Disposition": 'attachment; filename="results.json"'},
+        )
     pairs = latest_done_by_dialog(group_id)
     crit_order: list[str] = []
     crit_names: dict[str, str] = {}
@@ -1244,7 +1381,7 @@ def export(group_id: str | None = None, format: str = Query(default="csv")):
             headers={"Content-Disposition": f'attachment; filename="cqa_export_{suffix}.json"'},
         )
     if format != "csv":
-        raise err(400, "format: допустимо csv или json.")
+        raise err(400, "format: допустимо csv, json или results.")
     buf = io.StringIO()
     w = csv.writer(buf, delimiter=";", lineterminator="\r\n")
     header = [
@@ -1283,6 +1420,40 @@ def calibration_get(group_id: str | None = None):
         values = {cid: v.get("value") for cid, v in ((e.get("result") or {}).get("criteria") or {}).items()}
         items.append({"dialog_id": d["id"], "checklist": cl["config"], "values": values, "pred_total": e.get("total")})
     return calibration.compare(items, reference)
+
+
+# --- integrations & audit ---
+
+@app.get("/api/audit")
+def audit_get(entity: str | None = None, entity_id: str | None = None, event: str | None = None, limit: int = 200):
+    return {"items": ig.audit_list(entity, entity_id, event, limit)}
+
+
+@app.get("/api/integrations")
+def integrations_get():
+    return ig.status()
+
+
+@app.get("/api/integrations/deliveries")
+def integrations_deliveries(limit: int = 50):
+    return {"items": ig.deliveries(limit)}
+
+
+@app.post("/api/integrations/webhook/test")
+async def integrations_webhook_test(request: Request, body: Any = Body(default=None)):
+    """Тестовое событие на настроенные адреса (или на url из тела - для проверки нового потока Power Automate)."""
+    url = str(body_dict(body).get("url") or "").strip()
+    if url and not url.lower().startswith(("http://", "https://")):
+        raise err(400, "url должен начинаться с http:// или https://")
+    targets = [url] if url else ig.webhook_urls()
+    if not targets:
+        raise err(400, "Вебхуки не настроены: задайте CQA_WEBHOOK_URLS в .env или передайте url.")
+    ev = ig.emit("webhook.test", {"message": "Проверка интеграции CQA", "by": actor_of(request)}, urls=targets)
+    await ig.wait_idle()
+    rows = db.query("SELECT status, http_status, error, url FROM webhook_deliveries WHERE event_id = ?", [ev["id"]])
+    for r in rows:
+        r["url"] = ig.mask_url(r["url"])
+    return {"event": ev, "deliveries": rows}
 
 
 # --- static frontend (mounted last so /api/* wins) ---

@@ -4,7 +4,7 @@ import { api, exportUrl } from '../api.js';
 import {
   h, clear, icon, button, fmt, isNum, prefs, toast, toastError, openModal, confirmDialog, debounce,
   scorePill, agreementMeter, statusChip, channelCell, emptyState, errorState, skeleton, select, field, plural, LANG_LABELS,
-  estimateCost,
+  estimateCost, costHint,
 } from '../ui.js';
 
 const STATUS_FILTERS = [
@@ -98,7 +98,21 @@ export async function mount(root, { query, ctx }) {
         h('div', { class: 'toolbar__filters' }, groupSel, langSel, chanSel, statusSel, searchInput),
         h('div', { class: 'toolbar__export' },
           h('a', { class: 'btn btn--ghost btn--sm', href: '#', onclick: (e) => { e.preventDefault(); window.open(exportUrl(state.filters.group, 'csv'), '_blank'); } }, icon('download', 14), h('span', null, 'CSV')),
-          h('a', { class: 'btn btn--ghost btn--sm', href: '#', onclick: (e) => { e.preventDefault(); window.open(exportUrl(state.filters.group, 'json'), '_blank'); } }, icon('download', 14), h('span', null, 'JSON')))),
+          h('a', { class: 'btn btn--ghost btn--sm', href: '#', onclick: (e) => { e.preventDefault(); window.open(exportUrl(state.filters.group, 'json'), '_blank'); } }, icon('download', 14), h('span', null, 'JSON')),
+          h('a', {
+            class: 'btn btn--ghost btn--sm', href: '#', 'data-tip': 'results.json для сдачи организаторам: формат JSON 1.0, проверка перед скачиванием',
+            onclick: async (e) => {
+              e.preventDefault();
+              const group = state.filters.group;
+              if (!group) { toast('Выберите группу (DEV или контрольную) в фильтре слева', 'error'); return; }
+              try {
+                const r = await api.results(group);
+                if (r.errors.length) toast(`Формат: ${r.errors.length} замечаний, первое - ${r.errors[0]}`, 'error', 8000);
+                else toast(`results.json: ${r.count} записей, оценено ${r.ok}, без оценки ${r.error}. Формат в порядке`, r.error ? 'info' : 'success', 6000);
+                window.open(exportUrl(group, 'results'), '_blank');
+              } catch (err) { toastError(err, 'Не удалось собрать results.json'); }
+            },
+          }, icon('download', 14), h('span', null, 'results.json')))),
       h('div', { class: 'toolbar__row toolbar__row--eval' },
         h('label', { class: 'inline-label' }, h('span', null, 'Чек-лист'), checklistSel),
         countLabel,
@@ -306,7 +320,7 @@ export async function mount(root, { query, ctx }) {
     const est = estimate(ids.length);
     const cl = state.checklists.find((c) => c.id === state.checklistId);
     const msg = `${ids.length} ${plural(ids.length, 'диалог', 'диалога', 'диалогов')} по чек-листу «${cl ? `${cl.name}, версия ${cl.version}` : state.checklistId}», ${est.votes} ${plural(est.votes, 'прогон', 'прогона', 'прогонов')} на диалог. `
-      + (est.local ? 'Локальная модель — без затрат на API.' : `Ориентировочная стоимость: ${fmt.money(est.cost)}.`);
+      + costHint(est);
     if (all || ids.length > 3) {
       const ok = await confirmDialog({ title: 'Запустить оценку?', message: msg, confirmLabel: 'Запустить оценку' });
       if (!ok) return;

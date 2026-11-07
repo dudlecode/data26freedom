@@ -71,7 +71,7 @@ class StubProvider:
         return RunResult(
             data={"client_request": f"Запрос клиента (прогон {run_no + 1})", "criteria": criteria},
             model=self.model,
-            usage={"input_tokens": 100, "output_tokens": 50, "cache_read_input_tokens": 20 * run_no},
+            usage={"input_tokens": 100, "output_tokens": 50},
             duration_ms=5,
             cost_usd=0.01,
             provider=self.name,
