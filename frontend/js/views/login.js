@@ -67,7 +67,11 @@ export function mount(root, { ctx, onLogin }) {
   // Быстрый вход: клик по роли сразу входит. Локально по демо-паролю, на сервере через
   // /api/auth/quick (пароль не покидает сервер; роли задаёт CQA_QUICK_LOGIN_ROLES).
   let quickRoles = null;
-  api.quickRoles().then((r) => { quickRoles = new Set(r.roles || []); }).catch(() => { quickRoles = new Set(); });
+  const demoTitle = h('div', { class: 'demo__title' }, DEMO_PASSWORD ? 'Быстрый вход' : 'Пользователь');
+  api.quickRoles().then((r) => {
+    quickRoles = new Set(r.roles || []);
+    if (!DEMO_PASSWORD && quickRoles.size) demoTitle.textContent = 'Быстрый вход';
+  }).catch(() => { quickRoles = new Set(); });
   const quickLogin = (u, row) => {
     error.textContent = '';
     userIn.value = u.username;
@@ -106,7 +110,7 @@ export function mount(root, { ctx, onLogin }) {
         h('h1', { class: 'login__title' }, 'Вход'),
         form,
         h('div', { class: 'demo' },
-          h('div', { class: 'demo__title' }, 'Быстрый вход'),
+          demoTitle,
           h('div', { class: 'acct-list' }, quick)))),
     h('footer', { class: 'login__bottom' }, h('span', null, '© 2026 Freedom Broker'))));
 
