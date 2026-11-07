@@ -1,4 +1,4 @@
-// Калибровка: совпадение последних оценок ИИ с контрольной разметкой команды (eval/reference_dev.json).
+// Калибровка: совпадение последних оценок ИИ с независимой разметкой DEV (eval/reference_dev.json).
 
 import { api } from '../api.js';
 import { h, clear, fmt, isNum, prefs, emptyState, errorState, skeleton, pageHeader, bar, shortValue, normValue, dotted, nDialogs, saveNavList } from '../ui.js';
@@ -22,7 +22,7 @@ export async function mount(root, { ctx }) {
   root.append(
     pageHeader({
       title: 'Калибровка',
-      meta: 'Сравнение с контрольной разметкой команды, не с эталоном организаторов',
+      meta: 'Сравнение с независимой разметкой DEV, не с эталоном организаторов',
       actions: [groupSel],
     }),
     body);
@@ -99,16 +99,16 @@ export async function mount(root, { ctx }) {
         const href = `#/dialog/${encodeURIComponent(r.id)}`;
         tbody.append(h('tr', { class: 'is-link', onclick: (e) => { if (!e.target.closest('a')) ctx.navigate(href); } },
           h('td', { class: 'q-id' }, h('a', { class: 'id', href }, r.id)),
-          h('td', { class: 'num q-ref', 'data-label': 'Эталон' }, fmt.n2(r.ref_total)),
+          h('td', { class: 'num q-ref', 'data-label': 'Разметка' }, fmt.n2(r.ref_total)),
           h('td', { class: 'num q-pred', 'data-label': 'ИИ' }, fmt.n2(r.pred_total)),
           // расхождение плохо в обе стороны: цвет по величине, а не по знаку
-          h('td', { class: ['num', 'q-delta', delta !== null && Math.abs(delta) >= 10 && 't-danger strong', delta !== null && Math.abs(delta) >= 3 && Math.abs(delta) < 10 && 't-warn'], 'data-tip': delta === null || Math.abs(delta) < 0.005 ? null : delta > 0 ? 'ИИ выше эталона' : 'ИИ ниже эталона' }, delta === null || Math.abs(delta) < 0.005 ? '' : `${delta > 0 ? '+' : ''}${fmt.n2(delta)}`),
+          h('td', { class: ['num', 'q-delta', delta !== null && Math.abs(delta) >= 10 && 't-danger strong', delta !== null && Math.abs(delta) >= 3 && Math.abs(delta) < 10 && 't-warn'], 'data-tip': delta === null || Math.abs(delta) < 0.005 ? null : delta > 0 ? 'ИИ выше разметки' : 'ИИ ниже разметки' }, delta === null || Math.abs(delta) < 0.005 ? '' : `${delta > 0 ? '+' : ''}${fmt.n2(delta)}`),
           h('td', { class: 'wrap q-miss' }, (r.diffs || []).length
             ? r.diffs.map((x, i) => [i ? [h('span', { class: 'sep' }, '·'), '\u200B'] : null, h('span', { class: 'nowrap' }, h('b', null, codeOf(x.cid)), ` ИИ ${shortValue(x.pred)} вместо ${shortValue(x.ref)}`)])
             : h('span', { class: 't-2' }, 'Совпадают все критерии'))));
       }
       tableBox.append(h('table', { class: 'tbl tbl--cards cal-cards' },
-        h('thead', null, h('tr', null, h('th', null, 'Диалог'), h('th', { class: 'num' }, 'Эталон'), h('th', { class: 'num' }, 'ИИ'), h('th', { class: 'num' }, 'Разница'), h('th', null, 'Расхождения по критериям'))),
+        h('thead', null, h('tr', null, h('th', null, 'Диалог'), h('th', { class: 'num' }, 'Разметка'), h('th', { class: 'num' }, 'ИИ'), h('th', { class: 'num' }, 'Разница'), h('th', null, 'Расхождения по критериям'))),
         tbody));
     }
     body.append(h('section', { class: 'panel' },
