@@ -165,7 +165,7 @@ export async function mount(root, { query, ctx }) {
       h('div', { class: 'panel__head' }, h('h2', { class: 'panel__title' }, 'Вставить транскрипт'),
         h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'Закрыть', onclick: () => togglePaste(false) }, icon('close', 16))),
       h('div', { class: 'panel__body fstack' },
-        field('Текст диалога', ta, { hint: `Каждая реплика с новой строки: роль и текст. Время в квадратных скобках можно не указывать.${isTouch() ? '' : ' Ctrl+Enter импортирует.'}` }),
+        field('Текст диалога', ta, { hint: `Каждая реплика с новой строки: роль и текст. Время в квадратных скобках можно не указывать.` }),
         h('div', { class: 'fgrid fgrid--3' }, field('ID диалога', idIn), field('Канал', chSel), field('Язык', lnSel)),
         h('div', { class: 'factions' }, go, button('Отмена', { kind: 'secondary', onClick: () => togglePaste(false) }), msg)));
     setTimeout(() => ta.focus(), 0);
@@ -194,7 +194,7 @@ export async function mount(root, { query, ctx }) {
   const selectBtn = canEval ? h('button', { type: 'button', class: 'btn btn--secondary btn--sm filters__selbtn', 'aria-pressed': 'false', onclick: () => setSelectMode(!state.selectMode) }) : null;
   for (const el of [langSeg, chanSel, groupSel]) el.classList.add('filters__more');
   const filters = h('div', { class: 'filters' },
-    h('div', { class: 'search' }, icon('search', 16), searchIn, h('kbd', { class: 'search__kbd', 'aria-hidden': 'true' }, '/')),
+    h('div', { class: 'search' }, icon('search', 16), searchIn),
     langSeg, chanSel, groupSel, filterBtn, selectBtn, h('span', { class: 'spacer' }), summary);
 
   function paintFilterBtn() {
@@ -706,8 +706,7 @@ export async function mount(root, { query, ctx }) {
     bulk.append(
       h('span', { class: 'bulk__text' }, `Выбрано ${n}`),
       button('Оценить', { kind: 'primary', size: 'sm', onClick: () => askEvaluate([...state.selected]) }),
-      button('Снять выбор', { kind: 'ghost', size: 'sm', onClick: () => { state.selected.clear(); state.selectMode = false; renderTable(); } }),
-      h('kbd', { class: 'bulk__kbd', 'data-tip': 'Esc снимает выбор' }, 'Esc'));
+      button('Снять выбор', { kind: 'ghost', size: 'sm', onClick: () => { state.selected.clear(); state.selectMode = false; renderTable(); } }));
   }
 
   function askEvaluate(ids, { onlyMissing = false } = {}) {

@@ -1,6 +1,6 @@
 /*
  * Оболочка приложения: вход выбором роли, hash-роутер, сайдбар со счётчиками, смена роли,
- * палитра команд (Ctrl+K), справка по клавишам (?), системные баннеры.
+ * палитра команд, системные баннеры.
  *
  * Каждое представление (js/views/*.js) экспортирует
  *     mount(container, { params, query, ctx }) -> cleanup | undefined | Promise<cleanup>
@@ -12,7 +12,7 @@
 import { api } from './api.js';
 import {
   h, clear, icon, installTooltips, errorState, skeleton, confirmDialog, closePopover, popover, initials, fmt, prefs,
-  keysBlocked, toastError, cardList, navOrigin, sheet, closeSheet, isPhone, phoneMQ,
+  toastError, cardList, navOrigin, sheet, closeSheet, isPhone, phoneMQ,
 } from './ui.js';
 import { setUser, getUser, can, landing, ROLES } from './session.js';
 
@@ -111,7 +111,7 @@ export const ctx = {
   refreshBadges: () => refreshCounts(),
   refreshHealth: () => refreshHealth(),
   setTitle(t) { document.title = t ? `${t}: контроль качества` : 'Контроль качества диалогов'; },
-  /** Команды экрана для палитры (Ctrl+K): [{id, label, icon, hint, run}] или функция, возвращающая список. */
+  /** Команды экрана для палитры: [{id, label, icon, hint, run}] или функция, возвращающая список. */
   registerCommands(list) {
     const entry = { list };
     commandSets.add(entry);
@@ -130,7 +130,6 @@ export const ctx = {
   quickRoles: () => quickRoles || [],
   /** Экран сообщает оператора, чей диалог открыт: смена роли на «Оператор» войдёт за него. */
   setOperatorContext(key) { contextOperator = key && key !== '_unknown' ? key : null; },
-  showShortcuts: () => showShortcuts(),
   logout: () => logout(),
   navItems: () => visibleNav().filter((n) => !n.divider),
   /** Путь предыдущего экрана: список центрируется на диалоге только при возврате из карточки. */
@@ -423,7 +422,6 @@ function openUserMenu(anchor) {
     roles.length ? h('div', { class: 'menu-sep', role: 'separator' }) : null,
     // настройки (модель оценки, Qwen, ключ Claude API): только из этого меню, в сайдбаре их нет
     can('manage') ? item('Настройки', 'settings', () => ctx.navigate('#/settings'), { current: currentNav() === 'settings' }) : null,
-    phone ? null : item('Горячие клавиши', 'keyboard', () => showShortcuts(), { hint: '?' }),
     item('Выйти', 'logout', () => logout()));
   if (phone) {
     // телефон: меню пользователя в нижнем листе, под большой палец
@@ -478,11 +476,9 @@ navBox.addEventListener('click', (e) => { if (e.target.closest('a')) setRailOpen
 phoneMQ.addEventListener('change', () => { closeSheet(); closePopover(); });
 
 function renderSearch() {
-  const mac = /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent || '');
-  clear(searchBtn).append(icon('search', 16), h('span', { class: 'sb__search-label' }, 'Поиск'), h('kbd', { class: 'sb__kbd' }, mac ? '⌘ K' : 'Ctrl K'));
+  clear(searchBtn).append(icon('search', 16), h('span', { class: 'sb__search-label' }, 'Поиск'));
   searchBtn.setAttribute('aria-label', 'Поиск диалогов, операторов и команд');
   searchBtn.dataset.tip = 'Поиск';
-  searchBtn.dataset.kbd = mac ? '⌘ K' : 'Ctrl K';
 }
 searchBtn.addEventListener('click', () => openPalette());
 tbSearch.append(icon('search', 20));
@@ -529,11 +525,6 @@ async function openPalette(q) {
   palette.open(q);
 }
 
-async function showShortcuts() {
-  const m = await import('./palette.js');
-  m.showShortcuts();
-}
-
 document.addEventListener('keydown', (e) => {
   if (!getUser() || shell.hidden) return;
   if ((e.metaKey || e.ctrlKey) && !e.altKey && (e.code === 'KeyK' || e.key === 'k' || e.key === 'л')) {
@@ -541,8 +532,6 @@ document.addEventListener('keydown', (e) => {
     openPalette();
     return;
   }
-  if (keysBlocked(e)) return;
-  if (e.key === '?' || (e.code === 'Slash' && e.shiftKey)) { e.preventDefault(); showShortcuts(); }
 });
 
 /* ---------- роутер ---------- */

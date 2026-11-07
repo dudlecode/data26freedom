@@ -1395,15 +1395,6 @@ a.kpi:hover b { text-decoration: underline; text-underline-offset: 3px; }
 .palette__foot { display: flex; gap: 16px; padding: 8px 16px; border-top: 1px solid var(--border); background: var(--surface-2); font-size: var(--fs-12); color: var(--text-2); }
 .palette__foot span { display: inline-flex; align-items: center; gap: 3px; }
 
-/* ---------- справка по клавишам ---------- */
-
-dialog.dlg--keys { width: 620px; }
-.keys { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 28px; margin-top: 12px; }
-.keys__title { font-size: var(--fs-13); font-weight: 600; margin-bottom: 6px; }
-.keys__list { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 12px; align-items: center; font-size: var(--fs-13); }
-.keys__list dt { display: flex; gap: 3px; }
-.keys__list dd { color: var(--text-2); }
-@media (max-width: 640px) { .keys { grid-template-columns: minmax(0, 1fr); } }
 
 /* ---------- разбор для оператора ---------- */
 
@@ -1676,7 +1667,7 @@ dialog.dlg--keys { width: 620px; }
   .turn__play { opacity: 1; }
   .turn__copy .icon { opacity: 0.55; }
   .crit__dispute { display: none; }
-  .search__kbd, .role__key, .login__keys, .bulk__kbd, .palette__foot, .palette__esc, .palette__hint, .sb__kbd { display: none; }
+  .search__kbd, .role__key, .bulk__kbd, .palette__foot, .palette__esc, .palette__hint, .sb__kbd { display: none; }
   [data-tip] { -webkit-touch-callout: none; }
 }
 

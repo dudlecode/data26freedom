@@ -8,7 +8,7 @@ import {
   valueBadge, valueLabel, normValue, shortValue, scoreTone, linkifyTurns, rangeLabel,
   emptyState, errorState, skeleton, pageHeader, nTurns, nRuns, fetchEstimate, costText,
   isCall, channelLabel, iconButton, countUp, replay, keysBlocked, cardList, humanError, plural, progressLine, reducedMotion, isKey, stripLead,
-  isTouch, prefs,
+  prefs,
 } from '../ui.js';
 import { renderTranscript } from '../transcript.js';
 import { can, hasRole } from '../session.js';
@@ -131,8 +131,6 @@ export async function mount(root, { params, query, ctx }) {
   const runLine = progressLine('Оценка выполняется');
   const prevBtn = iconButton('chevronUp', 'Предыдущий диалог', () => goNeighbour(-1), { disabled: !neighbour(-1), tip: neighbour(-1) ? 'Предыдущий диалог' : 'Это первый диалог списка' });
   const nextBtn = iconButton('chevronDown', 'Следующий диалог', () => goNeighbour(1), { disabled: !neighbour(1), tip: neighbour(1) ? 'Следующий диалог' : 'Это последний диалог списка' });
-  prevBtn.dataset.kbd = '[';
-  nextBtn.dataset.kbd = ']';
   const pager = navIdx >= 0
     ? h('div', { class: 'pager', role: 'group', 'aria-label': `Навигация по списку «${back.label}»` },
       h('span', { class: 'pager__pos', 'data-tip': `Порядок списка «${back.label}» с его фильтрами и сортировкой` }, `${navIdx + 1} из ${nav.ids.length}`),
@@ -641,7 +639,7 @@ export async function mount(root, { params, query, ctx }) {
     const el = h('div', { class: 'appeal-slot' });
     const label = operator ? 'Оспорить оценку' : 'Подать апелляцию';
     const collapsed = () => {
-      clear(el).append(button(label, { kind: 'secondary', size: 'sm', iconName: 'appeals', onClick: () => expand(), tip: 'Клавиша A' }));
+      clear(el).append(button(label, { kind: 'secondary', size: 'sm', iconName: 'appeals', onClick: () => expand() }));
     };
     const expand = () => {
       if (el.querySelector('textarea')) { el.querySelector('textarea').focus(); return; }
@@ -675,7 +673,7 @@ export async function mount(root, { params, query, ctx }) {
         if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); collapsed(); }
       });
       clear(el).append(h('div', { class: 'appeal-form' },
-        field(operator ? 'Почему оценка неверна' : 'Апелляция', ta, { hint: isTouch() ? 'Решение примет проверяющий.' : 'Ctrl+Enter отправляет, Esc отменяет. Решение примет проверяющий.' }),
+        field(operator ? 'Почему оценка неверна' : 'Апелляция', ta, { hint: 'Решение примет проверяющий.' }),
         h('div', { class: 'factions' }, submit, button('Отмена', { kind: 'ghost', size: 'sm', onClick: () => collapsed() }), msg)));
       setTimeout(() => { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); revealCrit(el.closest('.crit')); }, 0);
     };

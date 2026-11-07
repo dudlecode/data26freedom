@@ -5,7 +5,7 @@ import { api, audioUrl } from '../api.js';
 import {
   h, clear, icon, button, fmt, isNum, toast, toastError, dotted, withBusy, field, select, append, confirmDialog,
   valueBadge, valueLabel, normValue, allowedValues, scaleSteps, linkifyTurns, emptyState, errorState, skeleton,
-  pageHeader, TYPE_LABELS, stripLead, isPhone, isTouch, reducedMotion,
+  pageHeader, TYPE_LABELS, stripLead, isPhone, reducedMotion,
 } from '../ui.js';
 import { renderTranscript } from '../transcript.js';
 import { can } from '../session.js';
@@ -290,7 +290,7 @@ export async function mount(root, { params, ctx }) {
     reason.addEventListener('input', () => { if (reason.value.trim() && msg.classList.contains('is-error')) { msg.className = 'inline-msg'; msg.textContent = ''; } });
     reason.addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit.click(); } });
     box.append(
-      h('div', { class: 'sect__head' }, h('h2', { class: 'sect__title' }, 'Решение'), isTouch() ? null : h('span', { class: 't-12 t-2' }, 'Ctrl+Enter сохраняет')),
+      h('div', { class: 'sect__head' }, h('h2', { class: 'sect__title' }, 'Решение')),
       h('div', { class: 'fstack' },
         h('div', { class: 'radios', role: 'radiogroup', 'aria-label': 'Решение' },
           h('label', { class: ['check-row', !allowed && 'is-disabled'] }, rConfirm, `Подтвердить «${valueLabel(c, original.value)}»`),

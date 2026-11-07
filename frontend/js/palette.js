@@ -1,9 +1,8 @@
-// Палитра команд (Ctrl+K или ⌘K): диалог по ID, оператор, экран или действие за пару нажатий.
+// Палитра команд: диалог по ID, оператор, экран или действие за пару нажатий.
 // Нечёткий поиск по подпоследовательности; если ничего не нашлось, запрос пробуется в другой раскладке
 // («lbfkjub» находит «Диалоги»). Экраны регистрируют свои команды через ctx.registerCommands.
-// Здесь же справка по горячим клавишам (?).
 
-import { h, clear, icon, fmt, isNum, fold, channelLabel, button, reducedMotion, isTouch, isPhone } from './ui.js';
+import { h, clear, icon, fmt, isNum, fold, channelLabel, button, reducedMotion, isPhone } from './ui.js';
 import { operatorKey } from './operators.js';
 import { opName } from './api.js';
 import { ROLE_LABEL } from './session.js';
@@ -90,14 +89,10 @@ export function createPalette(ctx) {
   });
   const list = h('div', { class: 'palette__list', id: 'palette-list', role: 'listbox', 'aria-label': 'Результаты' });
   const note = h('div', { class: 'palette__note', hidden: true });
-  const foot = h('div', { class: 'palette__foot', 'aria-hidden': 'true' },
-    h('span', null, h('kbd', null, icon('chevronUp', 12)), h('kbd', null, icon('chevronDown', 12)), ' выбор'),
-    h('span', null, h('kbd', null, 'Enter'), ' открыть'),
-    h('span', null, h('kbd', null, 'Esc'), ' закрыть'));
   const box = h('div', { class: 'palette', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Поиск и команды' },
-    h('div', { class: 'palette__bar' }, icon('search', 16), input, h('kbd', { class: 'palette__esc' }, 'Esc'),
+    h('div', { class: 'palette__bar' }, icon('search', 16), input,
       h('button', { type: 'button', class: 'icon-btn palette__close', 'aria-label': 'Закрыть поиск', onclick: () => close() }, icon('close', 16))),
-    note, list, foot);
+    note, list);
   const backdrop = h('div', { class: 'palette-backdrop', onmousedown: (e) => { if (e.target === backdrop) close(); } }, box);
 
   async function ensureDialogs() {
@@ -127,7 +122,6 @@ export function createPalette(ctx) {
       const label = ROLE_LABEL[r] || r;
       acts.push({ label: `Сменить роль: ${label}`, icon: 'user', run: () => ctx.switchRole(r), keywords: 'войти как роль' });
     }
-    if (!isTouch()) acts.push({ label: 'Горячие клавиши', icon: 'keyboard', run: () => showShortcuts(), hint: '?' });
     acts.push({ label: 'Выйти', icon: 'logout', run: () => ctx.logout() });
     return acts;
   }
@@ -232,7 +226,7 @@ export function createPalette(ctx) {
         h('span', { class: 'palette__icon' }, icon(it.icon || 'spark', 16)),
         h('span', { class: 'palette__label' }, ...marked(it.label, it.idx)),
         it.meta ? h('span', { class: 'palette__meta' }, it.meta) : null,
-        it.hint ? h('kbd', { class: 'palette__hint' }, it.hint) : null));
+        null));
       }
     }
     if (!items.length) {
@@ -298,31 +292,4 @@ export function createPalette(ctx) {
   }
 
   return { open, close, refresh: () => { loadedAt = 0; } };
-}
-
-/* ---------- справка по клавишам ---------- */
-
-const KEYS = [
-  ['Везде', [[['Ctrl', 'K'], 'Поиск диалога, оператора, команды'], [['?'], 'Эта справка']]],
-  ['Обзор', [[['Стрелки'], 'Ячейки тепловой карты'], [['Enter'], 'Открыть критерий в карточке']]],
-  ['Диалоги', [[['J', 'K'], 'Следующая и предыдущая строка'], [['Enter'], 'Открыть диалог'], [['X'], 'Выбрать строку'], [['/'], 'Поиск'], [['Esc'], 'Снять выбор']]],
-  ['Карточка диалога', [[['[', ']'], 'Предыдущий и следующий диалог списка'], [['J', 'K'], 'Следующий и предыдущий критерий'], [['Enter'], 'Раскрыть критерий'], [['A'], 'Оспорить оценку критерия'], [['Esc'], 'Назад к списку']]],
-  ['Формы', [[['Ctrl', 'Enter'], 'Отправить апелляцию или решение']]],
-];
-
-export function showShortcuts() {
-  if (document.querySelector('dialog.dlg--keys')) return;
-  const mac = /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent || '');
-  const dlg = h('dialog', { class: 'dlg dlg--keys', 'aria-labelledby': 'keys-title' },
-    h('div', { class: 'dlg__body' },
-      h('h2', { class: 'dlg__title', id: 'keys-title' }, 'Горячие клавиши'),
-      h('div', { class: 'keys' }, KEYS.map(([group, rows]) => h('section', { class: 'keys__group' },
-        h('h3', { class: 'keys__title' }, group),
-        h('dl', { class: 'keys__list' }, rows.map(([ks, text]) => [
-          h('dt', null, ks.map((k) => h('kbd', null, mac && k === 'Ctrl' ? '⌘' : k))),
-          h('dd', null, text)])))))),
-    h('div', { class: 'dlg__foot' }, button('Закрыть', { kind: 'secondary', onClick: () => dlg.close() })));
-  dlg.addEventListener('close', () => dlg.parentNode && dlg.parentNode.removeChild(dlg));
-  document.body.append(dlg);
-  dlg.showModal();
 }

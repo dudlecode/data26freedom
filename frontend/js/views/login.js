@@ -19,7 +19,6 @@ export function mount(root, { ctx, onLogin, quick = null }) {
   let buttons = [];
   let info = { roles: [], operators: [] };
   let mode = 'roles';
-  const keysHint = h('span', { class: 'login__keys' }, '');
   let opButtons = [];
 
   async function go(r, btn, operatorKey) {
@@ -49,7 +48,6 @@ export function mount(root, { ctx, onLogin, quick = null }) {
     const roles = ROLES.filter((r) => (info.roles || []).includes(r.id));
     if (!roles.length) {
       list.append(emptyState({ title: 'Быстрый вход выключен на сервере', text: 'Роли для входа задаёт CQA_QUICK_LOGIN_ROLES.' }));
-      keysHint.textContent = '';
       return;
     }
     const ops = info.operators || [];
@@ -60,20 +58,17 @@ export function mount(root, { ctx, onLogin, quick = null }) {
         h('span', { class: 'role__text' },
           h('span', { class: 'role__name' }, r.label),
           h('span', { class: 'role__duty' }, r.duty),
-          h('span', { class: 'role__user' }, who)),
-        h('kbd', { class: 'role__key', 'aria-hidden': 'true' }, String(i + 1)));
+          h('span', { class: 'role__user' }, who)));
       b.addEventListener('click', () => (r.id === 'operator' && ops.length ? renderOperators(r) : go(r, b)));
       return b;
     });
     list.append(...buttons);
-    keysHint.textContent = buttons.length > 1 ? `Клавиши 1-${buttons.length}` : 'Клавиша 1';
     setTimeout(() => { if (buttons[0] && !document.activeElement.closest('.role')) buttons[0].focus(); }, 0);
   }
 
   /** Оператор выбирает себя: поиск по имени, стрелки, Enter. Esc возвращает к ролям. */
   function renderOperators(role) {
     mode = 'operators';
-    keysHint.textContent = 'Стрелки и Enter, Esc назад';
     title.textContent = 'Кто вы?';
     sub.textContent = 'Оператор видит только свои диалоги и оспаривает их оценки.';
     clear(list);
@@ -160,7 +155,7 @@ export function mount(root, { ctx, onLogin, quick = null }) {
         sub,
         list,
         error)),
-    h('footer', { class: 'login__bottom' }, h('span', null, '© 2026 Freedom Broker'), keysHint)));
+    h('footer', { class: 'login__bottom' }, h('span', null, '© 2026 Freedom Broker'))));
 
   ctx.setTitle('Вход');
 }

@@ -327,7 +327,6 @@ function showTip(target, instant) {
   }
   tipTarget = target;
   tipEl.textContent = text;
-  if (target.dataset.kbd) tipEl.append(h('kbd', { class: 'tip__kbd' }, target.dataset.kbd));
   tipEl.classList.toggle('is-instant', !!instant);
   const r = target.getBoundingClientRect();
   const t = tipEl.getBoundingClientRect();
