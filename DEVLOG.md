@@ -1,0 +1,57 @@
+# DEVLOG
+
+Бэклог задач команды и агентов. Правила - [AGENTS.md](AGENTS.md#devlog-обязательно). Время - Астана (UTC+5).
+
+Статусы: `[ ]` ждёт, `[>]` в работе, `[x]` сделано, `[!]` заблокировано.
+Строка индекса: ID, что делаем, кто (человек / агент), ветка, когда взято. Детали - в разделе задачи ниже.
+
+## Сроки
+
+- вс 08.11 ~11:00 - организаторы открывают 10 контрольных чатов (новый `group_id`, тот же API).
+- вс 08.11 12:00 - стоп-код: `results/dev/results.json` и `results/prod/results.json` в открытом репозитории, commit и push.
+- вс 08.11 13:00-17:00 - питчи топ-50: 5 минут живого демо.
+
+## Задачи
+
+- [x] `TASK-001` Запуск проекта на Windows - Magurin / Claude Code - `main` - 07.11 16:25
+- [>] `TASK-002` Интеграции и выгрузка results.json - Magurin / Claude Code - `feat/integrations` - 07.11 17:20
+- [>] `TASK-003` Замер локальной модели qwen3:30b - Magurin / Claude Code - `feat/integrations` - 07.11 17:55
+- [!] `TASK-004` Собрать results/dev/results.json - не взята - заблокирована: нужен ключ Claude API или быстрая локальная модель
+
+## `TASK-001`
+
+venv, зависимости, сервер на http://127.0.0.1:8000. 28 из 29 тестов: падала проверка прав 0600 у `.env`,
+на Windows их нет (исправлено в `TASK-002`).
+
+## `TASK-002`
+
+Область: `backend/cqa/{app,db,results,integrations,postman}.py`, `frontend/js/{app,api}.js`,
+`frontend/js/views/{settings,dialogs}.js`, `dynamics/`, `docs/`, `results/README.md`, `.github/workflows/ci.yml`, `ollama/`.
+Готово, когда: ветка закоммичена, CI зелёный, влита в `main`.
+
+Сделано на ветке, ещё не закоммичено:
+- выгрузка `results.json` по приложению к гайду + проверка формата: `python -m cqa.results`, кнопка **results.json**
+  на экране диалогов, `GET /api/results`;
+- журнал действий (`GET /api/audit`, Настройки → Журнал действий);
+- вебхуки для Power Automate с HMAC и журналом доставок;
+- встраивание в Dynamics 365 (`?embed=1&data=dialog%3D<id>`, `dynamics/cqa_dialog_card.html`);
+- коллекция Postman, CI на Ubuntu и Windows, 38 тестов.
+
+## `TASK-003`
+
+Цель: время на диалог и совпадение с `eval/reference_dev.json` на 5-10 диалогах DEV.
+- Ollama по умолчанию обрезает промпт до 4096 токенов молча. Добавлен `qwen3:30b-cqa` с окном 16k
+  (`ollama/Modelfile.qwen3-30b-cqa`).
+- С обрезанным промптом: ~5 мин на диалог, 64% модели на CPU (RTX 4060 8 ГБ).
+- С окном 16k оценка не уложилась в таймаут клиента (~15 мин): «Нет соединения с localhost:11434». Разбираюсь.
+
+## `TASK-004`
+
+DEV не оценён: без модели все 65 записей уйдут как `status: "error"`. Команда, когда модель будет:
+`cd backend && ../.venv/Scripts/python.exe -m cqa.results --group DEV --evaluate --out ../results/dev/results.json`.
+
+## Решения и грабли
+
+- Формат сдачи - приложение к гайду, JSON 1.0. `results.json` собирать только кодом (`cqa.results`), руками не править.
+- Сравнивают по ответу на каждый критерий; контрольные 10 - только чаты.
+- Видимость репозитория (сейчас приватный) меняет команда, не агенты.
