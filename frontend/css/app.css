@@ -1451,6 +1451,13 @@ dialog.dlg--keys { width: 620px; }
 .sheet__sign i { flex: 1; height: 18px; border-bottom: 1px solid #8C9A92; }
 .sheet__foot { margin-top: 28px; font-size: 11px; color: var(--text-2); }
 @media (max-width: 860px) { .sheet { padding: 24px 20px; } .sheet__meta { grid-template-columns: minmax(0, 1fr); } .sheet__total { justify-items: start; } }
+/* на экране лист всегда в пропорциях A4: короткий разбор не превращается в обрубок, подписи стоят внизу листа;
+   длинный разбор растягивает лист по содержимому */
+@media screen {
+  .sheet-wrap { container-type: inline-size; }
+  .sheet { display: flex; flex-direction: column; min-height: calc(min(100cqw, 794px) * 297 / 210); }
+  .sheet__sign { margin-top: auto; padding-top: 44px; }
+}
 
 @media print {
   @page { size: A4; margin: 14mm 16mm; }
