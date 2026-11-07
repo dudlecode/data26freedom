@@ -1200,6 +1200,11 @@ a.kpi:hover b { text-decoration: underline; text-underline-offset: 3px; }
 .ov.is-loading { opacity: 0.55; pointer-events: none; }
 .ov__main { min-width: 0; }
 .ov__side { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+/* на десктопе высоту ряда задаёт карта; боковая колонка равна ей и прокручивается сама */
+@media (min-width: 1001px) {
+  .ov { align-items: stretch; }
+  .ov__side { height: 0; min-height: 100%; overflow-y: auto; overscroll-behavior: contain; padding-right: 2px; scrollbar-gutter: stable; }
+}
 .ov__headl { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
 .ov .panel__head .input { width: auto; }
 /* до 1320 боковая колонка уже, но остаётся рядом с картой: слабые места и операторы видны без прокрутки */
@@ -1478,6 +1483,8 @@ dialog.dlg--keys { width: 620px; }
   transition: opacity var(--d-press) ease, border-color var(--d-press) ease, color var(--d-press) ease;
 }
 .crit:not(.is-open):hover > .crit__dispute, .crit:not(.is-open) > .crit__row:focus-visible ~ .crit__dispute { opacity: 1; pointer-events: auto; }
+.crit:has(> .crit__dispute) > .crit__row { padding-right: 104px; }
+.crit__dispute { top: 50%; transform: translateY(-50%); box-shadow: -12px 0 12px 4px var(--surface); }
 .crit__dispute:hover { border-color: var(--primary); color: var(--primary); }
 .appeal-slot { padding-top: 10px; border-top: 1px solid var(--border); }
 .appeal-slot .appeal-form { padding-top: 0; border-top: 0; }
