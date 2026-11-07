@@ -20,6 +20,7 @@
 - [x] `TASK-005` Убрать Claude API, оставить один OpenAI-совместимый провайдер под Qwen - Magurin / Claude Code - `feat/integrations` - 07.11 18:26
 - [x] `TASK-006` Перепроверка Qwen по разъяснениям организаторов на DEV - Alex / Claude Code - без ветки (только замер) - 07.11 21:35 - готово 22:13: Qwen по-прежнему нарушает разъяснения по C7, C2 и C8, Claude их соблюдает
 - [>] `TASK-007` Кастомные выпадающие списки и мягкая полировка UI - Magurin / Claude Code - `feat/ui-auth-deploy` - 08.11 04:07
+- [>] `TASK-008` Влить `feat/ui-auth-deploy` (PR #2) в `main`, обновить README - Alex / Claude Code - `feat/ui-auth-deploy` - 08.11 04:18
 
 ## `TASK-001`
 
@@ -98,3 +99,9 @@ DEV не оценён: без модели все 65 записей уйдут �
 
 Область: `frontend/js/ui.js`, `frontend/css/app.css`, точечно `frontend/js/views/*`.
 Готово, когда: все `select` открывают свой список вместо системного (на телефоне остаётся системный), UI проверен локально, правки в PR #2.
+
+## `TASK-008`
+
+Область: `README.md` на ветке `feat/ui-auth-deploy`, слияние PR #2 в `main`. Код `TASK-007` не трогаю.
+Готово, когда: README описывает текущее решение, тесты зелёные, PR #2 влит в `main` без конфликтов.
+Ветку `feat/ui-auth-deploy` не удаляю, пока не закрыта `TASK-007` (Magurin продолжает в ней работать). Удалить её - решение Alex.
