@@ -27,7 +27,7 @@ const NAV = [
   { id: 'appeals', href: '#/appeals', label: 'Апелляции', operatorLabel: 'Мои апелляции', icon: 'appeals', count: 'warn', primary: true },
   { divider: true },
   { id: 'checklists', href: '#/checklists', label: 'Чек-листы', icon: 'checklists' },
-  // Калибровка и настройки скрыты из интерфейса у всех ролей (экраны и API на месте)
+  // Калибровка скрыта у всех ролей; настройки не в сайдбаре, а в меню аватара супервайзера (экраны и API на месте)
   { id: 'calibration', href: '#/calibration', label: 'Калибровка', icon: 'calibration', roles: [] },
   { id: 'settings', href: '#/settings', label: 'Настройки', icon: 'settings', roles: [] },
 ];
@@ -51,7 +51,7 @@ const routes = [
   { rx: /^\/gross$/, nav: 'gross', roles: TEAM, top: true, load: () => import('./views/gross.js') },
   { rx: /^\/checklists$/, nav: 'checklists', top: true, load: () => import('./views/checklists.js'), fill: true },
   { rx: /^\/calibration$/, nav: 'calibration', roles: [], top: true, load: () => import('./views/calibration.js') },
-  { rx: /^\/settings$/, nav: 'settings', roles: [], top: true, load: () => import('./views/settings.js') },
+  { rx: /^\/settings$/, nav: 'settings', roles: ['supervisor'], top: true, load: () => import('./views/settings.js') },
 ];
 
 const shell = document.getElementById('shell');
@@ -421,6 +421,8 @@ function openUserMenu(anchor) {
     roles.length ? h('div', { class: 'menu-group' }, 'Сменить роль') : null,
     roles.map((r, i) => item(r.label, r.id === u.role ? 'check' : 'user', () => switchRole(r.id), { current: r.id === u.role, hint: String(i + 1) })),
     roles.length ? h('div', { class: 'menu-sep', role: 'separator' }) : null,
+    // настройки (модель оценки, Qwen, ключ Claude API): только из этого меню, в сайдбаре их нет
+    can('manage') ? item('Настройки', 'settings', () => ctx.navigate('#/settings'), { current: currentNav() === 'settings' }) : null,
     phone ? null : item('Горячие клавиши', 'keyboard', () => showShortcuts(), { hint: '?' }),
     item('Выйти', 'logout', () => logout()));
   if (phone) {
