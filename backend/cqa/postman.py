@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -190,6 +191,10 @@ def main() -> None:
     with open(OUT, "w", encoding="utf-8", newline="\n") as f:  # LF на любой ОС: CI сравнивает с закоммиченным
         f.write(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
     n = sum(len(f["item"]) for f in data["item"])
+    try:  # консоль Windows в cp1252/cp866 не печатает кириллицу
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+    except (AttributeError, ValueError):
+        pass
     print(f"{OUT}: {n} запросов")
 
 
