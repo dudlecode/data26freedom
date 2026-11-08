@@ -30,6 +30,13 @@
 - [x] `TASK-013` README и AGENTS.md: событие - Data Challenge’26 в Nazarbayev University, Freedom Broker - автор кейса - Alex / Claude Code - `fix/readme-event` - 08.11 10:58 - готово: PR #7 влит, заодно 51 эндпоинт в README
 - [x] `TASK-014` Проверить `main` перед стоп-кодом и выкатить его на cqa.dogslabs.org - Alex / Claude Code - `fix/readme-prod` - 08.11 11:03 - готово: PR #8 влит, сервер на `main`, DEV на сервере совпадает с `results/dev`
 - [x] `TASK-015` Сверить README с кодом, проверить сервер, открыть репозиторий (решение Alex) - Alex / Claude Code - `main` - 08.11 11:14 - готово: репозиторий public, сервер = `main`, README поправлен (PR #9)
+- [>] `TASK-016` FBroker и SWAP на сервере cqa.dogslabs.org: загрузить и оценить основным чек-листом (без results) - Magurin / Claude Code - без ветки (данные на сервере) - 08.11 11:20
+
+## `TASK-016`
+
+Область: база на сервере cqa.dogslabs.org через его API (вход супервайзером): загрузка групп `FBroker` и `Swap`, оценка активным чек-листом v1 (Claude Opus 5.5, high, 3 прогона). Код, `results/` и чек-лист не меняю.
+Готово, когда: на сайте 78 диалогов, все 13 новых оценены; `results/prod` не тронут. Баллы FBroker на сайте могут отличаться от `results/prod` (повторный прогон модели).
+11:15: FBroker (10) и Swap (3) загружены на сервер, оценка запущена.
 
 ## `TASK-012`
 
