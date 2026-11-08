@@ -14,7 +14,7 @@
 ## Задачи
 
 - [x] `TASK-001` Запуск проекта на Windows - Magurin / Claude Code - `main` - 07.11 16:25
-- [>] `TASK-002` Интеграции и выгрузка results.json - Magurin / Claude Code - `feat/integrations` - 07.11 17:20 - перенос без удаления Claude: ветка `feat/integrations-claude`, PR #3 ждёт мержа
+- [x] `TASK-002` Интеграции и выгрузка results.json - Magurin / Claude Code - `feat/integrations` - 07.11 17:20 - влито в `main`: PR #3 (интеграции поверх Claude) и PR #4 (Postman в CI на Windows)
 - [>] `TASK-003` Замер локальной модели qwen3:30b - Magurin / Claude Code - `feat/integrations` - 07.11 17:55
 - [!] `TASK-004` Собрать results/dev/results.json - не взята - заблокирована: нужен быстрый доступ к qwen3:30b (внешний хостинг)
 - [x] `TASK-005` Убрать Claude API, оставить один OpenAI-совместимый провайдер под Qwen - Magurin / Claude Code - `feat/integrations` - 07.11 18:26
@@ -43,6 +43,8 @@ venv, зависимости, сервер на http://127.0.0.1:8000. 28 из 2
 
 08.11: PR #1 конфликтует с main (там Claude основная модель). Интеграции перенесены поверх main без удаления Claude:
 журнал действий, вебхуки, Dynamics, Postman, CI - ветка `feat/integrations-claude`, PR #3. `results.py` не перенесён: выгрузка - `results_export.py` / `cqa.submit`.
+Итог (08.11): PR #3 и PR #4 влиты в `main`, CI зелёный на Ubuntu и Windows. Грабли: `cqa.postman` печатал кириллицу
+и падал на Windows-раннере (cp1252) - вывод переключён на UTF-8, в CI `PYTHONUTF8=1`.
 
 ## `TASK-003`
 
