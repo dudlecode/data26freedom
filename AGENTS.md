@@ -1,6 +1,6 @@
 # CQA - правила для агентов (Claude Code, Codex, Cursor и др.)
 
-Проект: прототип Conversation Quality Analytics для хакатона Freedom Broker. Обзор и запуск - [README.md](README.md),
+Проект: прототип Conversation Quality Analytics, кейс Freedom Broker на Data Challenge’26 (Nazarbayev University). Обзор и запуск - [README.md](README.md),
 контракт API - [docs/API.md](docs/API.md).
 
 ## DEVLOG (обязательно)
