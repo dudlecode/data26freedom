@@ -24,6 +24,12 @@
 
 - [x] `TASK-009` Быстрый обзор возможностей и ограничений проекта - Codex - `main` (только DEVLOG) - 08.11 10:15 - готово: проверен код, 69 тестов прошли
 - [x] `TASK-010` Экран «Диалоги»: крупнее и нагляднее таблица - Magurin / Claude Code - `feat/dialogs-table-refresh` - 08.11 05:22 - готово: PR #5
+- [>] `TASK-011` Контрольный прогон FBroker (10 чатов) -> results/prod/results.json, сохранить набор SWAP - Magurin / Claude Code - `results/prod-fbroker` - 08.11 10:47
+
+## `TASK-011`
+
+Область: `results/prod/results.json` (через `python -m cqa.submit --set prod`), сырые наборы FBroker и SWAP локально (не в git). Код и чек-лист не меняю.
+Готово, когда: 10 записей FBroker оценены основным чек-листом, проверка формата 1.0 пройдена, файл в `main` до стоп-кода 12:00. SWAP только сохранён, не оценивается.
 
 ## `TASK-010`
 
