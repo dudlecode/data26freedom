@@ -27,8 +27,8 @@
 - [x] `TASK-011` Контрольный прогон FBroker (10 чатов) -> results/prod/results.json, сохранить набор SWAP - Magurin / Claude Code - `results/prod-fbroker` - 08.11 10:47 - готово: 10 из 10 ok, PR #6 влит в `main`; SWAP в базе, не оценён
 
 - [x] `TASK-012` Разбор требований и полного процесса оценки оператора - Codex - `main` (только DEVLOG) - 08.11 10:57
-- [>] `TASK-013` README и AGENTS.md: событие - Data Challenge’26 в Nazarbayev University, Freedom Broker - автор кейса - Alex / Claude Code - `fix/readme-event` - 08.11 10:58
-- [>] `TASK-014` Проверить `main` перед стоп-кодом и выкатить его на cqa.dogslabs.org - Alex / Claude Code - `fix/readme-prod` - 08.11 11:03
+- [x] `TASK-013` README и AGENTS.md: событие - Data Challenge’26 в Nazarbayev University, Freedom Broker - автор кейса - Alex / Claude Code - `fix/readme-event` - 08.11 10:58 - готово: PR #7 влит, заодно 51 эндпоинт в README
+- [x] `TASK-014` Проверить `main` перед стоп-кодом и выкатить его на cqa.dogslabs.org - Alex / Claude Code - `fix/readme-prod` - 08.11 11:03 - готово: PR #8 влит, сервер на `main`, DEV на сервере совпадает с `results/dev`
 
 ## `TASK-012`
 
@@ -159,3 +159,7 @@ README: экраны Обзор, профиль оператора, разбор
 
 Область: устаревшие строки `README.md` (контрольный набор, число тестов), выкладка `main` на сервер cqa (код, без пересоздания базы). Код приложения и результаты не меняю.
 Готово, когда: README совпадает с `main`, на сервере работает `main`, база сохранена копией перед выкладкой, health и оценки DEV на месте.
+Итог (08.11 11:15): в `main` 69 тестов зелёные, `results/dev` (65) и `results/prod` (10, FBroker) - все `ok`, формат 1.0 пройден, Postman 51 запрос.
+README: строка про контрольный набор и число тестов (PR #8). Сервер: копия базы `data/cqa.sqlite3.bak-0811-before-main`, выкачен `main`, новые таблицы журнала и вебхуков создались сами.
+Грабли: у p1-ru-009 на сервере последней была тестовая оценка Qwen (64,71), выгрузка считалась hybrid. Перезапуск оценки Claude (#135) дал 41,0, как в `results/dev`; теперь DEV на сервере совпадает с файлом, модель только Claude.
+FBroker на сервер не загружен: оценки контрольного набора есть только в локальной базе Magurin и в `results/prod`.
