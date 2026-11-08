@@ -5,9 +5,9 @@
 import { api, exportUrl, resultsUrl, opName } from '../api.js';
 import {
   h, clear, icon, button, fmt, isNum, prefs, toast, toastError, debounce, select, segmented, field,
-  scoreCell, fraction, emptyState, errorState, skeleton, plural, nDialogs, menu, withBusy, pageHeader,
+  fraction, emptyState, errorState, skeleton, plural, nDialogs, menu, withBusy, pageHeader,
   fetchEstimate, costText, channelLabel, isCall, LANG_LABELS, popover, closePopover, progressLine, keysBlocked, saveNavList, isKey, download, humanError,
-  isPhone, isTouch, phoneMQ, sheet, closeSheet,
+  isPhone, isTouch, phoneMQ, sheet, closeSheet, initials, scoreTone,
 } from '../ui.js';
 import { can } from '../session.js';
 import { operatorKey } from '../operators.js';
@@ -31,6 +31,13 @@ function loadBatch() {
 }
 function saveBatch(b) {
   try { if (b) sessionStorage.setItem('cqa.batch', JSON.stringify(b)); else sessionStorage.removeItem('cqa.batch'); } catch { /* ignore */ }
+}
+
+// оттенок аватара оператора: стабильный по имени, в зелёно-сине-охристой гамме
+function hue(name) {
+  let x = 0;
+  for (const ch of String(name)) x = (x * 31 + ch.codePointAt(0)) >>> 0;
+  return [150, 170, 195, 210, 125, 35, 260, 15][x % 8];
 }
 
 export async function mount(root, { query, ctx }) {
@@ -223,6 +230,7 @@ export async function mount(root, { query, ctx }) {
 
   function openFilterSheet() {
     const keys = new Set(columns().map((c) => c.key));
+    keys.add('language');
     const sortSel = select(SORTS.filter((x) => keys.has(x.key)).map((x) => ({ value: x.key, label: x.label })), state.sort.key, { 'aria-label': 'Сортировка' });
     const dirSeg = segmented([{ value: '1', label: 'По возрастанию' }, { value: '-1', label: 'По убыванию' }], String(state.sort.dir), (v) => {
       state.sort = { key: state.sort.key, dir: Number(v) };
@@ -389,6 +397,7 @@ export async function mount(root, { query, ctx }) {
     for (const s of SLICES) {
       const n = s.value ? b.filter(sliceTest(s.value)).length : b.length;
       if (s.value && !n && state.filters.status !== s.value) continue;
+      if (s.value === 'none' && n === b.length && state.filters.status !== s.value) continue;
       const on = state.filters.status === s.value;
       slices.append(h('button', {
         type: 'button', class: ['slice', s.tone && `slice--${s.tone}`], 'aria-pressed': String(on), 'data-tip': s.tip || null,
@@ -407,17 +416,18 @@ export async function mount(root, { query, ctx }) {
   }
 
   /* ---------- таблица ---------- */
-  function columns() {
+  // Канал и язык - одна ячейка; «Сигналы» скрыты, пока среди показанных нет оценённых
+  function columns(rows = filtered()) {
     const hasOp = state.items.some((d) => opName(d.operator) && opName(d.operator) !== 'Не указано');
+    const hasDone = rows.some((d) => done(d.latest));
     return [
-      { key: 'id', label: 'ID' },
+      { key: 'id', label: 'Диалог' },
       hasOp ? { key: 'operator', label: 'Оператор' } : null,
       { key: 'channel', label: 'Канал' },
-      { key: 'language', label: 'Язык' },
       { key: 'turns', label: 'Реплик', num: true },
-      { key: 'total', label: 'Итог', num: true },
-      { key: 'signals', label: 'Сигналы', tip: 'Грубая ошибка, расхождение прогонов модели, апелляция, изменение по апелляции' },
-      { key: 'updated', label: 'Обновлено' },
+      { key: 'total', label: 'Итог' },
+      hasDone ? { key: 'signals', label: 'Сигналы', tip: 'Грубая ошибка, расхождение прогонов модели, апелляция, изменение по апелляции' } : null,
+      { key: 'updated', label: 'Обновлено', num: true },
     ].filter(Boolean);
   }
 
@@ -455,7 +465,7 @@ export async function mount(root, { query, ctx }) {
       return;
     }
 
-    const cols = columns();
+    const cols = columns(rows);
     const headRow = h('tr');
     if (canEval) {
       const allChecked = rows.every((d) => state.selected.has(d.id));
@@ -470,7 +480,7 @@ export async function mount(root, { query, ctx }) {
     }
     for (const c of cols) {
       const on = state.sort.key === c.key;
-      headRow.append(h('th', { class: ['sortable', c.num && 'num'], 'data-tip': c.tip || null, 'aria-sort': on ? (state.sort.dir > 0 ? 'ascending' : 'descending') : null },
+      headRow.append(h('th', { class: ['sortable', c.num && 'num', `h-${c.key}`], 'data-tip': c.tip || null, 'aria-sort': on ? (state.sort.dir > 0 ? 'ascending' : 'descending') : null },
         h('button', {
           type: 'button',
           onclick: () => {
@@ -626,17 +636,22 @@ export async function mount(root, { query, ctx }) {
         case 'id': tr.append(h('td', { class: 'c-id' }, h('a', { class: 'id', href }, d.id))); break;
         case 'operator': {
           const o = opName(d.operator);
-          tr.append(h('td', { class: 'clip c-op c-meta', style: { maxWidth: '140px' } }, o && o !== 'Не указано'
-            ? (can('analytics') ? h('a', { class: 'op-link', href: `#/operator/${encodeURIComponent(d.operator_key || operatorKey(o))}`, 'data-tip': 'Профиль оператора' }, o) : o)
-            : h('span', { class: 't-2' }, 'Не указано')));
+          const known = o && o !== 'Не указано';
+          const name = known && can('analytics')
+            ? h('a', { class: 'op-link', href: `#/operator/${encodeURIComponent(d.operator_key || operatorKey(o))}`, 'data-tip': 'Профиль оператора' }, o)
+            : h('span', { class: known ? null : 't-2' }, known ? o : 'Не указано');
+          tr.append(h('td', { class: 'c-op c-meta' }, h('span', { class: 'dl-op' },
+            h('span', { class: ['dl-ava', !known && 'dl-ava--none'], style: known ? { '--ava-h': String(hue(o)) } : null, 'aria-hidden': 'true' }, known ? initials(o) : '?'),
+            h('span', { class: 'dl-op__name' }, name))));
           break;
         }
-        case 'channel': tr.append(h('td', { class: 'c-channel c-meta' }, channelLabel(d.channel))); break;
-        case 'language': tr.append(h('td', { class: 'c-lang c-meta', 'data-tip': LANG_LABELS[d.language] || null }, d.language || '')); break;
+        case 'channel': tr.append(h('td', { class: 'c-channel c-meta' }, h('span', { class: 'dl-ch' },
+          icon(isCall(d.channel) ? 'phone' : 'dialogs', 16), channelLabel(d.channel),
+          d.language && !state.filters.language ? h('span', { class: 'dl-lang', 'data-tip': LANG_LABELS[d.language] || null }, d.language) : null))); break;
         case 'turns': tr.append(h('td', { class: 'num c-turns' }, fmt.int(d.turns))); break;
-        case 'total': tr.append(h('td', { class: 'num c-total' }, totalCell(st, l))); break;
+        case 'total': tr.append(h('td', { class: 'c-total' }, totalCell(st, l))); break;
         case 'signals': tr.append(h('td', { class: 'c-signals' }, signalsCell(d, l))); break;
-        case 'updated': tr.append(h('td', { class: 't-2 nowrap c-updated', 'data-tip': fmt.date((l && (l.finished_at || l.created_at)) || d.imported_at) }, fmt.when((l && (l.finished_at || l.created_at)) || d.imported_at))); break;
+        case 'updated': tr.append(h('td', { class: 'num t-2 nowrap c-updated', 'data-tip': fmt.date((l && (l.finished_at || l.created_at)) || d.imported_at) }, fmt.when((l && (l.finished_at || l.created_at)) || d.imported_at))); break;
         default: tr.append(h('td'));
       }
     }
@@ -648,11 +663,16 @@ export async function mount(root, { query, ctx }) {
     if (st === 'running') return h('span', { class: 'rowprog' }, h('span', { class: 'rowprog__bar', style: { '--phase': `-${Date.now() % 1100}ms` } }), 'Оценивается');
     if (st === 'queued') return h('span', { class: 't-2' }, 'В очереди');
     if (st === 'error') return h('span', { class: 't-danger strong', 'data-tip': l && l.error ? humanError(l.error).summary : null }, 'Ошибка');
-    if (!done(l)) return h('span', { class: 't-2' }, 'Не оценён');
-    const wrap = h('span', { 'data-tip': `Чек-лист v${l.checklist_version ?? '?'}${l.gross ? '. Есть грубая ошибка' : ''}` });
-    if (l.gross) wrap.append(h('span', { class: 'score' }, fmt.n2(isNum(l.final_total) ? l.final_total : l.total)));
-    else wrap.append(scoreCell(l.total, l.final_total));
-    return wrap;
+    if (!done(l)) return h('span', { class: 'dl-pending' }, 'Не оценён');
+    const fin = isNum(l.final_total) ? l.final_total : l.total;
+    if (!isNum(fin)) return h('span', { class: 't-2' }, 'N/A');
+    const changed = isNum(l.total) && Math.abs(l.total - fin) > 0.004;
+    const tone = l.gross ? 'gross' : scoreTone(fin);
+    const tip = [`Чек-лист v${l.checklist_version ?? '?'}`, changed ? `исходно ${fmt.n2(l.total)}, после апелляции ${fmt.n2(fin)}` : '', l.gross ? 'есть грубая ошибка' : ''].filter(Boolean).join('. ');
+    return h('span', { class: `dl-score dl-score--${tone}`, 'data-tip': tip },
+      h('span', { class: 'dl-score__num' }, fmt.n2(fin)),
+      h('span', { class: 'dl-score__bar', 'aria-hidden': 'true' }, h('span', { style: { width: `${Math.max(0, Math.min(100, fin))}%` } })),
+      changed ? h('span', { class: 'dl-score__orig' }, `было ${fmt.n2(l.total)}`) : null);
   }
 
   function signalsCell(d, l) {
