@@ -30,6 +30,7 @@
 
 Область: `results/prod/results.json` (через `python -m cqa.submit --set prod`), сырые наборы FBroker и SWAP локально (не в git). Код и чек-лист не меняю.
 Готово, когда: 10 записей FBroker оценены основным чек-листом, проверка формата 1.0 пройдена, файл в `main` до стоп-кода 12:00. SWAP только сохранён, не оценивается.
+10:58: FBroker оценён (claude-opus-5-5, ok 10 из 10, формат 1.0 пройден, 69 тестов), PR #6 ждёт влития в `main`. SWAP (3 чата) загружен в базу, сырые наборы - `D:\Ackrate\cqa-datasets` (вне git). В `.env` пустой `CQA_SOURCE_URL`: ссылку передавал в `/api/datasets/fetch` как `source_url`.
 
 ## `TASK-010`
 
