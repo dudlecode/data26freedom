@@ -11,7 +11,7 @@
 | Что | Где |
 |---|---|
 | Результаты по DEV (65 диалогов) | [`results/dev/results.json`](results/dev/results.json) |
-| Результаты по контрольному набору | `results/prod/results.json`, появится в течение контрольного часа |
+| Результаты по контрольному набору | [`results/prod/results.json`](results/prod/results.json): 10 чатов набора FBroker, все оценены |
 | Модель | Claude Opus 5.5 (`claude-opus-5-5`) через Anthropic API, `mode: external_api` |
 | Стоимость оценки | около $0,04 за один прогон модели; диалог оценивается тремя прогонами, это около $0,11 с учётом кэша промпта (по фактическим расходам, `GET /api/evaluations/estimate`) |
 | Локальный вариант | Qwen3 30B через Ollama: на ноутбуке или на своей машине с GPU NVIDIA L4 в Google Cloud |
@@ -40,7 +40,7 @@ cd backend && ../.venv/bin/python -m cqa
 
 Впишите в `.env` ключ Claude API (`CQA_ANTHROPIC_API_KEY`) и ссылку на API организаторов (`CQA_SOURCE_URL`). Откройте http://127.0.0.1:8000, войдите как супервайзер, в «Диалогах» загрузите группу `DEV` и запустите оценку.
 
-Тесты: `cd backend && ../.venv/bin/python -m pytest -q` (63 теста).
+Тесты: `cd backend && ../.venv/bin/python -m pytest -q` (69 тестов).
 
 ## Сдача контрольного набора
 
