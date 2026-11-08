@@ -24,13 +24,14 @@
 
 - [x] `TASK-009` Быстрый обзор возможностей и ограничений проекта - Codex - `main` (только DEVLOG) - 08.11 10:15 - готово: проверен код, 69 тестов прошли
 - [x] `TASK-010` Экран «Диалоги»: крупнее и нагляднее таблица - Magurin / Claude Code - `feat/dialogs-table-refresh` - 08.11 05:22 - готово: PR #5
-- [>] `TASK-011` Контрольный прогон FBroker (10 чатов) -> results/prod/results.json, сохранить набор SWAP - Magurin / Claude Code - `results/prod-fbroker` - 08.11 10:47
+- [x] `TASK-011` Контрольный прогон FBroker (10 чатов) -> results/prod/results.json, сохранить набор SWAP - Magurin / Claude Code - `results/prod-fbroker` - 08.11 10:47 - готово: 10 из 10 ok, PR #6 влит в `main`; SWAP в базе, не оценён
 
 ## `TASK-011`
 
 Область: `results/prod/results.json` (через `python -m cqa.submit --set prod`), сырые наборы FBroker и SWAP локально (не в git). Код и чек-лист не меняю.
 Готово, когда: 10 записей FBroker оценены основным чек-листом, проверка формата 1.0 пройдена, файл в `main` до стоп-кода 12:00. SWAP только сохранён, не оценивается.
 10:58: FBroker оценён (claude-opus-5-5, ok 10 из 10, формат 1.0 пройден, 69 тестов), PR #6 ждёт влития в `main`. SWAP (3 чата) загружен в базу, сырые наборы - `D:\Ackrate\cqa-datasets` (вне git). В `.env` пустой `CQA_SOURCE_URL`: ссылку передавал в `/api/datasets/fetch` как `source_url`.
+Итог: PR #6 влит в `main` (a40f264), CI 4 из 4 зелёный. `results/prod/results.json`: 10 записей, claude-opus-5-5, формат 1.0. SWAP загружен в базу (группа `Swap`), оценка - по доп. инструкции организаторов.
 
 ## `TASK-010`
 
