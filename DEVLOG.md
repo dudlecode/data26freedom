@@ -33,7 +33,7 @@
 - [x] `TASK-016` FBroker и SWAP на сервере cqa.dogslabs.org: загрузить и оценить основным чек-листом (без results) - Magurin / Claude Code - без ветки (данные на сервере) - 08.11 11:20 - готово: на сервере 78 диалогов, FBroker 10 и Swap 3 оценены, `results/` не тронут
 
 - [x] `TASK-017` Подготовить 50 вопросов к Q&A защиты CQA - Codex - `main` (только DEVLOG) - 08.11 12:32
-- [x] `TASK-018` Остановить облако после хакатона, чтобы не шли расходы - Alex / Claude Code - без ветки (инфраструктура) - 09.11 15:20 - готово: qwen-gpu и cqa остановлены, сайт выключен
+- [x] `TASK-018` Остановить облако после хакатона, чтобы не шли расходы - Alex / Claude Code - без ветки (инфраструктура) - 09.11 15:20 - готово: всё в проекте `cqa-freedom` удалено, расходов нет
 
 ## `TASK-017`
 
@@ -198,4 +198,4 @@ FBroker на сервер не загружен: оценки контрольн
 
 Решение Alex 09.11: остановить всё, что тратит деньги. Код и `results/` не меняю.
 Итог (09.11 15:25): `qwen-gpu` (L4) и `cqa` остановлены (TERMINATED), cqa.dogslabs.org не отвечает. Перед остановкой копия базы сервера (78 диалогов, 152 оценки) - у Alex локально, `data/cqa-server-final-2026-11-09.sqlite3` (в .gitignore).
-Ещё оплачиваются, пока не удалены: диски `qwen-gpu` 100 ГБ SSD и `cqa` 20 ГБ, статический IP `cqa-ip`, Artifact Registry `cqa` 20,6 ГБ, бакет `cqa-freedom_cloudbuild`. DNS `cqa.dogslabs.org` - у Name.com, указывает на `cqa-ip`. Запустить снова: `gcloud compute instances start cqa --zone europe-west3-a --project cqa-freedom`.
+Ещё оплачиваются, пока не удалены: диски `qwen-gpu` 100 ГБ SSD и `cqa` 20 ГБ, статический IP `cqa-ip`, Artifact Registry `cqa` 20,6 ГБ, бакет `cqa-freedom_cloudbuild`. DNS `cqa.dogslabs.org` - у Name.com, указывает на `cqa-ip`. Удалено по решению Alex (09.11 15:40): машины `qwen-gpu` и `cqa` вместе с дисками, IP `cqa-ip`, Artifact Registry `cqa`, бакет `cqa-freedom_cloudbuild`. В проекте не осталось платных ресурсов; запись DNS у Name.com не трогали. Поднять заново: `deploy/setup.sh` на новой машине и `deploy/gpu-startup.sh` для Qwen, база - из локальной копии.
